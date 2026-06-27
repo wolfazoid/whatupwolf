@@ -1,0 +1,30 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('lab');
+  return entries.map((entry) => ({ params: { id: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const { title, date, type, status, tags, live } = entry.data;
+const ts = date.toISOString().slice(0, 16).replace('T', ' ');
+---
+<Base title={`${title} — Lab`}>
+  <div class="chrome flex items-center gap-2">
+    {live && <span class="live-dot"></span>}
+    <span>{ts}</span>
+    <span class="text-[var(--color-accent)]">[{type}]</span>
+    <span>status: {status}</span>
+  </div>
+  <h1 class="mt-2 text-2xl font-semibold tracking-tight">{title}</h1>
+  {tags.length > 0 && (
+    <div class="chrome mt-2 flex flex-wrap gap-2">{tags.map((t) => <span>#{t}</span>)}</div>
+  )}
+  <article class="prose mt-6 leading-relaxed [&_h2]:mt-6 [&_h2]:font-semibold [&_p]:mt-3 [&_code]:font-[var(--font-mono)]">
+    <Content />
+  </article>
+  <a href="/lab" class="chrome mt-8 inline-block hover:!text-[var(--color-ink)]">← back to lab</a>
+</Base>

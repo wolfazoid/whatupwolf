@@ -1,0 +1,27 @@
+---
+const items = [
+  { href: '/', label: 'Home' },
+  { href: '/work', label: 'Work' },
+  { href: '/writing', label: 'Writing' },
+  { href: '/video', label: 'Video' },
+  { href: '/lab', label: 'Lab' },
+  { href: '/now', label: 'Now' },
+  { href: '/rss.xml', label: 'RSS' },
+];
+const path = Astro.url.pathname.replace(/\/$/, '') || '/';
+---
+<nav class="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-[var(--color-line)] pb-4">
+  <a href="/" class="chrome !text-[var(--color-ink)] font-semibold tracking-tight">
+    <span class="text-[var(--color-accent)]">&gt;</span> whatupwolf
+  </a>
+  <span class="flex-1"></span>
+  {items.map((it) => (
+    <a
+      href={it.href}
+      class:list={[
+        'chrome hover:!text-[var(--color-ink)] transition-colors',
+        (path === it.href.replace(/\/$/, '')) && '!text-[var(--color-ink)] underline underline-offset-4',
+      ]}
+    >{it.label}</a>
+  ))}
+</nav>

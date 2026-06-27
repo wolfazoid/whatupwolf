@@ -1,0 +1,28 @@
+---
+import Base from '../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const entries = (await getCollection('work'))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+---
+<Base title="Work — whatupwolf">
+  <h1 class="text-2xl font-semibold tracking-tight">Work</h1>
+  <p class="mt-2 text-[var(--color-muted)]">Selected projects. Client work described generically.</p>
+  <div class="mt-6">
+    {entries.map((e) => (
+      <div class="border-b border-[var(--color-line)] py-4">
+        <div class="chrome flex items-center gap-2">
+          <span>{e.data.date.getFullYear()}</span>
+          <span class="text-[var(--color-accent)]">{e.data.role}</span>
+        </div>
+        <h3 class="mt-1 font-semibold tracking-tight">
+          {e.data.link ? <a href={e.data.link} class="hover:text-[var(--color-accent)]">{e.data.title} ↗</a> : e.data.title}
+        </h3>
+        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">{e.data.summary}</p>
+        {e.data.stack.length > 0 && (
+          <div class="chrome mt-2 flex flex-wrap gap-2">{e.data.stack.map((s) => <span>{s}</span>)}</div>
+        )}
+      </div>
+    ))}
+  </div>
+</Base>

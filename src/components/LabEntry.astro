@@ -1,0 +1,30 @@
+---
+interface Props {
+  title: string;
+  date: Date;
+  type: string;
+  status: string;
+  tags: string[];
+  live: boolean;
+  summary: string;
+  href?: string;
+}
+const { title, date, type, status, tags, live, summary, href } = Astro.props;
+const ts = date.toISOString().slice(0, 16).replace('T', ' ');
+const Tag = href ? 'a' : 'div';
+---
+<Tag href={href} class="block border-b border-[var(--color-line)] py-4 group">
+  <div class="chrome flex items-center gap-2">
+    {live && <span class="live-dot" title="live — just updated"></span>}
+    <span>{ts}</span>
+    <span class="text-[var(--color-accent)]">[{type}]</span>
+    <span>status: {status}</span>
+  </div>
+  <h3 class="mt-1 font-semibold tracking-tight group-hover:text-[var(--color-accent)] transition-colors">{title}</h3>
+  <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">{summary}</p>
+  {tags.length > 0 && (
+    <div class="chrome mt-2 flex flex-wrap gap-2">
+      {tags.map((t) => <span>#{t}</span>)}
+    </div>
+  )}
+</Tag>

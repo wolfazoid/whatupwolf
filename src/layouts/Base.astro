@@ -1,0 +1,32 @@
+---
+import Nav from '../components/Nav.astro';
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description?: string;
+}
+const { title, description = 'Personal brand, portfolio, and always-on experimentation lab.' } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="alternate" type="application/rss+xml" title="whatupwolf" href="/rss.xml" />
+  </head>
+  <body>
+    <main class="mx-auto max-w-2xl px-5 py-10">
+      <Nav />
+      <div class="py-10">
+        <slot />
+      </div>
+      <footer class="chrome border-t border-[var(--color-line)] pt-4">
+        whatupwolf.com · built by a builder · wearefeasting
+      </footer>
+    </main>
+  </body>
+</html>
