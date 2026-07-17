@@ -1,19 +1,31 @@
 ---
 import Base from '../../layouts/Base.astro';
-import LabEntry from '../../components/LabEntry.astro';
+import LabFilter from '../../components/LabFilter.tsx';
 import { getCollection } from 'astro:content';
 
 const entries = (await getCollection('lab'))
   .filter((e) => !e.data.draft)
   .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+
+// Flatten to serializable items for the client island (no Date instances
+// cross the SSR→client boundary — pre-format the timestamp here).
+const items = entries.map((e) => ({
+  id: e.id,
+  title: e.data.title,
+  ts: e.data.date.toISOString().slice(0, 16).replace('T', ' '),
+  type: e.data.type,
+  status: e.data.status,
+  tags: e.data.tags,
+  live: e.data.live,
+  summary: e.data.summary,
+}));
 ---
 <Base title="Lab — whatupwolf">
   <h1 class="text-2xl font-semibold tracking-tight">Lab</h1>
   <p class="mt-2 text-[var(--color-muted)]">A running log of what the machine is doing. Newest first.</p>
   <div class="mt-6">
-    {entries.length === 0 && <p class="chrome py-4">no entries yet.</p>}
-    {entries.map((e) => (
-      <LabEntry {...e.data} href={`/lab/${e.id}`} />
-    ))}
+    {items.length === 0
+      ? <p class="chrome py-4">no entries yet.</p>
+      : <LabFilter items={items} client:load />}
   </div>
 </Base>
