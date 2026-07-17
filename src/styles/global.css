@@ -4,9 +4,9 @@
 @theme {
   --color-bg: #faf8f3;
   --color-ink: #1a1a17;
-  --color-muted: #6b6760;
+  --color-muted: #555149; /* warm gray — 7.44:1 on --bg (WCAG AAA) */
   --color-line: #e6e1d6;
-  --color-accent: #1f8f4e; /* signal green — see open decisions */
+  --color-accent: #177a41; /* signal green — 5.08:1 on --bg (WCAG AA for link text) */
   --color-accent-soft: #e4f2e9;
 
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
