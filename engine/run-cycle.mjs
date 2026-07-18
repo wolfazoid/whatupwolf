@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickNextItem, markItemDone, slugify, renderLabEntry, parseCycleReport,
+  resolveStatus,
 } from './lib.mjs';
 
 const ENGINE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -19,6 +20,17 @@ const DRY = process.argv.includes('--dry-run');
 function sh(cmd, args) {
   if (DRY) { console.log(`[dry-run] ${cmd} ${args.join(' ')}`); return ''; }
   return execFileSync(cmd, args, { cwd: REPO_DIR, encoding: 'utf8' }).trim();
+}
+
+// Runs a verify command and reports pass/fail without throwing, so the runner
+// can decide the outcome rather than crashing on the first red check.
+function gate(cmd, args) {
+  try {
+    execFileSync(cmd, args, { cwd: REPO_DIR, stdio: 'inherit' });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function currentGhUser() {
@@ -96,6 +108,22 @@ function main() {
     }
   }
 
+  // 5b. Independent verify gate — the runner re-runs the checks itself instead
+  // of trusting the machine's self-report, so broken work can never ship as
+  // "done". Any failing gate overrides the status to "flagged".
+  let gateFailed = false;
+  if (!DRY) {
+    const testsPassed = gate('npm', ['test']);
+    const checkPassed = gate('npm', ['run', 'check']);
+    gateFailed = !testsPassed || !checkPassed;
+    const resolved = resolveStatus(report.status, testsPassed, checkPassed);
+    if (resolved !== report.status) {
+      const failed = [!testsPassed && 'npm test', !checkPassed && 'npm run check'].filter(Boolean).join(' and ');
+      console.error(`Verify gate failed (${failed}) — overriding cycle status "${report.status}" -> "flagged".`);
+    }
+    report.status = resolved;
+  }
+
   // 6. Render the Lab entry + check off the backlog item
   const date = new Date();
   const entry = renderLabEntry({
@@ -126,7 +154,11 @@ function main() {
     sh('git', ['add', '-A']);
     sh('git', ['commit', '-m', `lab: ${item.title}`]);
     sh('git', ['push', '-u', 'origin', branch]);
-    sh('gh', ['pr', 'create', '--fill', '--head', branch, '--base', 'main']);
+    const prTitle = `${gateFailed ? '[FLAGGED] ' : ''}lab: ${item.title}`;
+    const prBody = gateFailed
+      ? `⚠️ The runner's independent verify gate failed (npm test / npm run check) — status overridden to \`flagged\` for review.\n\n${report.summary}`
+      : report.summary;
+    sh('gh', ['pr', 'create', '--title', prTitle, '--body', prBody, '--head', branch, '--base', 'main']);
   } finally {
     if (prevUser && prevUser !== GH_USER) {
       sh('gh', ['auth', 'switch', '--user', prevUser]);

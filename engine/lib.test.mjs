@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
-import { slugify, renderLabEntry, parseCycleReport } from './lib.mjs';
+import { slugify, renderLabEntry, parseCycleReport, resolveStatus } from './lib.mjs';
 
 const SAMPLE = `# Engine Backlog
 
@@ -100,5 +100,21 @@ describe('parseCycleReport', () => {
   });
   it('throws on a bad status', () => {
     expect(() => parseCycleReport('{"status":"weird"}')).toThrow();
+  });
+});
+
+describe('resolveStatus', () => {
+  it('keeps the machine-reported status when both gates pass', () => {
+    expect(resolveStatus('done', true, true)).toBe('done');
+    expect(resolveStatus('flagged', true, true)).toBe('flagged');
+  });
+  it('overrides to flagged when tests fail', () => {
+    expect(resolveStatus('done', false, true)).toBe('flagged');
+  });
+  it('overrides to flagged when the check fails', () => {
+    expect(resolveStatus('done', true, false)).toBe('flagged');
+  });
+  it('flags when both gates fail', () => {
+    expect(resolveStatus('done', false, false)).toBe('flagged');
   });
 });
