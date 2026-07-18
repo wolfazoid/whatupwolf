@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { renderLabEntry, parseCycleReport, draftForType } from './lib.mjs';
+import { renderLabEntry, parseCycleReport, draftForType, parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { publishBranch } from './publish.mjs';
 
 const ENGINE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -85,12 +85,26 @@ function main() {
     return;
   }
 
-  // 3. Fresh branch, dated so each run gets its own. `-B` recreates a leftover branch
-  // cleanly off main instead of crashing on "branch already exists".
+  // 3. Fresh branch, dated so each run gets its own. `-B` recreates a leftover local
+  // branch cleanly off main instead of crashing on "branch already exists".
+  //
+  // A *remote* branch of the same name is the harder case: a second run on the same
+  // day would push a branch built fresh off main onto one that already has the first
+  // run's commit, and git rejects the non-fast-forward — the cycle dies at publish
+  // time, after the research has already been paid for. So we ask the remote which
+  // names are taken and step to the next free one (`…-2`, `…-3`), rather than
+  // force-pushing: the first run's branch may already have an open PR, and rewriting
+  // it would change what a reviewer is mid-way through reading. The Lab entry
+  // filename carries the same suffix, so two same-day runs don't collide on the
+  // content path either. In --dry-run nothing shells out, so this resolves to the
+  // plain dated name.
   const date = new Date();
   const day = date.toISOString().slice(0, 10);
-  const branch = `lab/${NAME}-${day}`;
+  const base = `lab/${NAME}-${day}`;
+  const branch = uniqueBranchName(base, parseRemoteBranches(sh('git', ['ls-remote', '--heads', 'origin', `${base}*`])));
+  const suffix = branch.slice(base.length); // '' on a first run, '-2' on a same-day re-run
   console.log(`Experiment: ${NAME}\nBranch:     ${branch}`);
+  if (suffix) console.log(`(${base} already exists on the remote — using ${branch} instead.)`);
   sh('git', ['checkout', '-B', branch]);
 
   // 4. Run the machine — it researches and writes engine/.experiment-report.json.
@@ -136,7 +150,7 @@ function main() {
     summary: report.summary,
     body: report.body,
   });
-  const entryPath = join(REPO_DIR, 'src', 'content', 'lab', `${day}-${NAME}.md`);
+  const entryPath = join(REPO_DIR, 'src', 'content', 'lab', `${day}-${NAME}${suffix}.md`);
 
   if (DRY) {
     console.log(`[dry-run] would write ${entryPath}`);

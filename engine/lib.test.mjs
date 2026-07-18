@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
 import { slugify, renderLabEntry, parseCycleReport, resolveStatus, draftForType } from './lib.mjs';
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
+import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -283,5 +284,47 @@ describe('draftForType', () => {
     expect(draftForType('essay')).toBe(true);
     expect(draftForType('')).toBe(true);
     expect(draftForType(undefined)).toBe(true);
+  });
+});
+
+describe('parseRemoteBranches', () => {
+  it('pulls branch names out of git ls-remote --heads output', () => {
+    const out = [
+      'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0\trefs/heads/lab/agent-weekly-2026-07-18',
+      'b1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0\trefs/heads/lab/agent-weekly-2026-07-18-2',
+    ].join('\n');
+    expect(parseRemoteBranches(out)).toEqual([
+      'lab/agent-weekly-2026-07-18',
+      'lab/agent-weekly-2026-07-18-2',
+    ]);
+  });
+  it('returns [] for empty output — the no-remote-branch case', () => {
+    // --dry-run's sh() returns '' without shelling out; that must read as "nothing taken".
+    expect(parseRemoteBranches('')).toEqual([]);
+  });
+  it('ignores lines that are not refs/heads entries', () => {
+    const out = 'warning: something\nc0ffee00\trefs/tags/v1\nc0ffee11\trefs/heads/main';
+    expect(parseRemoteBranches(out)).toEqual(['main']);
+  });
+});
+
+describe('uniqueBranchName', () => {
+  it('uses the plain dated name when the remote has no such branch', () => {
+    expect(uniqueBranchName('lab/agent-weekly-2026-07-18', [])).toBe('lab/agent-weekly-2026-07-18');
+  });
+  it('steps to -2 when a same-day run already pushed the dated branch', () => {
+    // Without this, `git push` hits a non-fast-forward and the whole run fails.
+    expect(uniqueBranchName('lab/x-2026-07-18', ['lab/x-2026-07-18'])).toBe('lab/x-2026-07-18-2');
+  });
+  it('keeps stepping past every taken suffix', () => {
+    const taken = ['lab/x-2026-07-18', 'lab/x-2026-07-18-2', 'lab/x-2026-07-18-3'];
+    expect(uniqueBranchName('lab/x-2026-07-18', taken)).toBe('lab/x-2026-07-18-4');
+  });
+  it('ignores unrelated branches', () => {
+    expect(uniqueBranchName('lab/x-2026-07-18', ['main', 'lab/y-2026-07-18'])).toBe('lab/x-2026-07-18');
+  });
+  it('throws rather than looping forever if every name is somehow taken', () => {
+    const taken = ['lab/x', ...Array.from({ length: 98 }, (_, i) => `lab/x-${i + 2}`)];
+    expect(() => uniqueBranchName('lab/x', taken)).toThrow(/no free branch name/);
   });
 });

@@ -85,6 +85,18 @@ node engine/run-experiment.mjs agent-weekly --dry-run   # preview the entry, no 
 node engine/run-experiment.mjs agent-weekly             # real run: research → branch → PR
 ```
 
+**Same-day re-runs.** Experiment branches are dated (`lab/agent-weekly-2026-07-18`), so a
+second run on the same day used to push a branch built fresh off `main` onto one that
+already had the first run's commit — git rejected the non-fast-forward and the run died at
+publish time, after the research had already been paid for. The runner now asks the remote
+which names are taken (`git ls-remote --heads`) and steps to the next free one:
+`…-2`, `…-3`, and so on. The Lab entry filename takes the same suffix
+(`2026-07-18-agent-weekly-2.md`), so two same-day runs don't collide on the content path
+either. It picks a new name rather than force-pushing on purpose: the first run's branch
+may already have an open PR, and rewriting it would change what a reviewer is mid-way
+through reading. `--dry-run` shells out to nothing, so it always previews the plain dated
+name.
+
 **Agent Weekly** is the first experiment: a weekly, factual digest of the past 7 days in
 AI agents (vendor releases, agent frameworks, trending repos, arXiv papers, HN threads),
 every item carrying a real fetched link. It renders as a `type: digest` entry that

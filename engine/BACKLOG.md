@@ -30,7 +30,7 @@ bullet (no checkbox) so the runner will NOT pick it — promote it to `- [ ]` wh
 
 ## Tier 4 — Engine hardening
 
-- [ ] Make engine/run-experiment.mjs resilient to an existing remote branch: a same-day re-run collides on the date-based branch name (`git push` non-fast-forward, cycle fails). Force-push the throwaway experiment branch (it's fully regenerated from main each run, so nothing is lost), or append a short unique suffix to the branch name. Preserve `--dry-run` (no side effects) and note the behavior in engine/README.md.
+- [x] Make engine/run-experiment.mjs resilient to an existing remote branch: a same-day re-run collides on the date-based branch name (`git push` non-fast-forward, cycle fails). Force-push the throwaway experiment branch (it's fully regenerated from main each run, so nothing is lost), or append a short unique suffix to the branch name. Preserve `--dry-run` (no side effects) and note the behavior in engine/README.md.
 
 ## Tier 5 — Site Health monitor (plan: docs/superpowers/plans/2026-07-18-site-health-monitor.md)
 
