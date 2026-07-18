@@ -77,6 +77,34 @@ export function uniqueBranchName(base, taken = []) {
   throw new Error(`no free branch name for ${base} (tried ${base}-2 … ${base}-99)`);
 }
 
+// The branch a backlog item builds on. Kept here (rather than inlined in the
+// runner) so the "is this item already taken?" check and the checkout use the
+// exact same name.
+export function branchForItem(title) {
+  return `lab/${slugify(shortTitle(title))}`;
+}
+
+// Picks the next backlog item the loop can actually build. Unchecked items whose
+// branch is already taken — a gated PR still waiting on Wolf's review — are
+// skipped rather than rebuilt: re-running them would hard-reset the branch under
+// the reviewer and reopen work that is already done. Without this, one unmerged
+// needs-human PR parks the whole loop on the same item forever.
+//
+// Pure: the caller decides what "taken" means (an open PR on the branch) and
+// feeds the names in, so the network lookup stays out of here. Returns
+// `{ item, branch }` for the first buildable item, or null when every unchecked
+// item is already in flight.
+export function pickBuildableItem(items, takenBranches = []) {
+  const taken = new Set(takenBranches);
+  for (const item of items) {
+    if (item.done) continue;
+    const branch = branchForItem(item.title);
+    if (taken.has(branch)) continue;
+    return { item, branch };
+  }
+  return null;
+}
+
 const yamlStr = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
 // YAML reserved words that, left bare, parse as a boolean or null rather than a
