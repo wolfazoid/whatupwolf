@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
-import { slugify, renderLabEntry, parseCycleReport, resolveStatus, draftForType } from './lib.mjs';
+import { slugify, renderLabEntry, parseCycleReport, parsePrivateReport, resolveStatus, draftForType } from './lib.mjs';
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
@@ -246,6 +246,46 @@ describe('parseCycleReport', () => {
   });
   it('throws on a bad status', () => {
     expect(() => parseCycleReport('{"status":"weird"}')).toThrow();
+  });
+});
+
+describe('parsePrivateReport', () => {
+  const wellFormed = {
+    status: 'flagged',
+    meta: { urls: ['https://example.invalid/a'], secrets: ['/a-route'] },
+    findings: 'the full private account',
+    public: { title: 't', summary: 's', body: 'b', tags: ['monitoring'] },
+  };
+  const report = (over = {}) => JSON.stringify({ ...wellFormed, ...over });
+
+  it('parses a well-formed private report', () => {
+    expect(parsePrivateReport(report())).toEqual(wellFormed);
+  });
+
+  it('defaults meta and tags to empty arrays when absent', () => {
+    const r = parsePrivateReport(report({ meta: undefined, public: { title: 't', summary: 's', body: 'b' } }));
+    expect(r.meta).toEqual({ urls: [], secrets: [] });
+    expect(r.public.tags).toEqual([]);
+  });
+
+  it('throws on a bad status', () => {
+    expect(() => parsePrivateReport(report({ status: 'weird' }))).toThrow();
+  });
+
+  it('throws when the public block is missing', () => {
+    expect(() => parsePrivateReport(report({ public: undefined }))).toThrow(/public/);
+  });
+
+  // A blank public field would render an empty entry rather than fail loudly.
+  it('throws on an empty public field', () => {
+    expect(() => parsePrivateReport(report({ public: { title: 't', summary: '  ', body: 'b' } })))
+      .toThrow(/public.summary/);
+  });
+
+  // No findings means the private half is empty — the split the experiment exists
+  // to prove never happened, so reject rather than publish half a report.
+  it('throws when findings are missing', () => {
+    expect(() => parsePrivateReport(report({ findings: '' }))).toThrow(/findings/);
   });
 });
 
