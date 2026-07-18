@@ -48,6 +48,35 @@ export function shortTitle(fullTitle, max = 72) {
   return t;
 }
 
+// Pulls branch names out of `git ls-remote --heads origin <pattern>` output.
+// Each line is "<sha>\trefs/heads/<branch>"; anything else (blank lines, stray
+// warnings) is ignored.
+export function parseRemoteBranches(lsRemoteOutput) {
+  const names = [];
+  for (const line of String(lsRemoteOutput).split('\n')) {
+    const m = line.match(/\srefs\/heads\/(\S+)\s*$/);
+    if (m) names.push(m[1]);
+  }
+  return names;
+}
+
+// Experiment branches are named by date (`lab/agent-weekly-2026-07-18`), so a
+// second run on the same day would reuse a name that is already on the remote —
+// `git push` then rejects the non-fast-forward and the whole run fails. Given the
+// names already taken, return the first free one: the base itself, else `-2`,
+// `-3`, … We pick a new name rather than force-pushing because the earlier
+// branch may already have an open PR; overwriting it would silently rewrite what
+// a reviewer is looking at. Pure — the caller does the git lookup.
+export function uniqueBranchName(base, taken = []) {
+  const used = new Set(taken);
+  if (!used.has(base)) return base;
+  for (let n = 2; n <= 99; n++) {
+    const candidate = `${base}-${n}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  throw new Error(`no free branch name for ${base} (tried ${base}-2 … ${base}-99)`);
+}
+
 const yamlStr = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
 // YAML reserved words that, left bare, parse as a boolean or null rather than a
