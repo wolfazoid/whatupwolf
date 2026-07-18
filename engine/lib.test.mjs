@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
-import { slugify, renderLabEntry, parseCycleReport, resolveStatus } from './lib.mjs';
+import { slugify, renderLabEntry, parseCycleReport, resolveStatus, draftForType } from './lib.mjs';
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
@@ -85,7 +85,20 @@ describe('renderLabEntry', () => {
     expect(entry).toContain('status: done');
     expect(entry).toContain('tags: [engine, sanitizer]');
     expect(entry).toContain('live: true');
+    expect(entry).toContain('draft: false');
     expect(entry).toContain('title: "Build the sanitization filter"');
+  });
+  it('stamps draft:true when the entry is gated for review', () => {
+    const gated = renderLabEntry({
+      title: 'Weekly briefing',
+      date: new Date('2026-07-18T14:30:00Z'),
+      type: 'briefing',
+      status: 'done',
+      draft: true,
+      summary: 'A point-of-view briefing.',
+      body: 'Prose.\n',
+    });
+    expect(gated).toContain('draft: true');
   });
   it('includes the body after the frontmatter', () => {
     expect(entry.trim().endsWith('Implemented allowlist + fail-closed scan.')).toBe(true);
@@ -248,5 +261,23 @@ describe('resolveStatus', () => {
   });
   it('flags when both gates fail', () => {
     expect(resolveStatus('done', false, false)).toBe('flagged');
+  });
+});
+
+describe('draftForType', () => {
+  it('publishes monitor and experiment entries direct (draft:false)', () => {
+    // Factual machine-log types — what ran, what changed, pass/fail — ship live.
+    expect(draftForType('monitor')).toBe(false);
+    expect(draftForType('experiment')).toBe(false);
+  });
+  it('gates briefing- and opinion-style entries behind draft:true', () => {
+    // These carry a point of view, so a human reviews before they go public.
+    expect(draftForType('briefing')).toBe(true);
+    expect(draftForType('note')).toBe(true);
+  });
+  it('fails safe: an unknown type is gated, never published unreviewed', () => {
+    expect(draftForType('essay')).toBe(true);
+    expect(draftForType('')).toBe(true);
+    expect(draftForType(undefined)).toBe(true);
   });
 });

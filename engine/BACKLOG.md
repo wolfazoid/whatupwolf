@@ -20,7 +20,7 @@ bullet (no checkbox) so the runner will NOT pick it — promote it to `- [ ]` wh
 ## Tier 2 — Wire the public/private pipeline (bridge the sanitizer to real experiments)
 
 - [x] Add engine/lib.mjs helper publicEntryFromReport(privateReport) that runs sanitize() then renderLabEntry() to produce a public lab entry, throwing (fail-closed) if sanitization fails. Unit-test with a clean report and a leaky report.
-- [ ] Encode the direct-vs-review gate: add a pure per-type policy (monitor/experiment publish direct; briefing or opinion content sets draft:true) applied when the runner writes the lab entry, and wire it into engine/run-cycle.mjs. Unit-test the policy function.
+- [x] Encode the direct-vs-review gate: add a pure per-type policy (monitor/experiment publish direct; briefing or opinion content sets draft:true) applied when the runner writes the lab entry, and wire it into engine/run-cycle.mjs. Unit-test the policy function.
 
 ## Later (not queued — promote to `- [ ]` when ready)
 
