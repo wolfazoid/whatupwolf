@@ -14,3 +14,4 @@ npm-debug.log*
 
 engine/.cycle-report.json
 engine/cron.log
+engine/PAUSED

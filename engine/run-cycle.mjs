@@ -39,15 +39,21 @@ function buildPrompt(task) {
 }
 
 function main() {
+  // 0. Kill switch (local, instant) — checked before any git/network work, so a
+  // `touch engine/PAUSED` (or `npm run pause`) stops the loop even if git is hung.
+  if (!DRY && existsSync(PAUSED)) {
+    console.log('Paused: engine/PAUSED is present — exiting immediately. `npm run resume` to resume.');
+    return;
+  }
+
   // 1. Sync main
   sh('git', ['checkout', 'main']);
   sh('git', ['pull', '--ff-only', 'origin', 'main']);
 
-  // 1b. Kill switch — a PAUSED sentinel halts the loop. It is honoured whether
-  // created locally (`touch engine/PAUSED`) or committed to main (e.g. from the
-  // GitHub web UI on a phone), since the pull above brings a committed one down.
+  // 1b. Re-check after pull — also catches a PAUSED committed to main (e.g. created
+  // from the GitHub web UI on a phone), which the pull above brings down.
   if (!DRY && existsSync(PAUSED)) {
-    console.log('Paused: engine/PAUSED is present — exiting without running a cycle. Remove it to resume.');
+    console.log('Paused: engine/PAUSED present on main — exiting without running a cycle. Remove it to resume.');
     return;
   }
 

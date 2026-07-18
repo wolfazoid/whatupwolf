@@ -9,7 +9,9 @@
     "preview": "astro preview",
     "check": "astro check",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "pause": "touch engine/PAUSED && echo 'engine paused — cron ticks will no-op until: npm run resume'",
+    "resume": "rm -f engine/PAUSED && echo 'engine resumed'"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",

@@ -36,9 +36,9 @@ Layered, most-accessible first:
 
 - **Auto-merge toggle** (GitHub, phone/anywhere) — the master switch for *publishing*.
   Off = cycles still open PRs but nothing ships. This is the default in Tier A.
-- **`engine/PAUSED`** — the runner exits on sight. `touch engine/PAUSED` on the box, or
-  create the file from the GitHub web UI (a committed one is pulled and honoured). Delete
-  it to resume.
+- **`engine/PAUSED`** — the runner exits on sight, before spending any Claude quota.
+  `npm run pause` (or `touch engine/PAUSED`) on the box, or create the file from the GitHub
+  web UI (a committed one is pulled and honoured). `npm run resume` (or delete it) to resume.
 - **Disable cron** — stops cycles from starting: `crontab -e`, comment the line.
 - **`pkill -f run-cycle.mjs`** — kills a cycle mid-flight.
 - **`git revert`** — everything is PRs + commits, so anything merged is reversible.
