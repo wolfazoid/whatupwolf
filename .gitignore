@@ -13,5 +13,7 @@ npm-debug.log*
 .DS_Store
 
 engine/.cycle-report.json
+engine/.experiment-report.json
 engine/cron.log
+engine/experiment.log
 engine/PAUSED

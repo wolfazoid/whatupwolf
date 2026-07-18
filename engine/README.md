@@ -72,9 +72,30 @@ Layered, most-accessible first:
   In Tier A (the default — variable unset), the guard **labels only and never merges**;
   every PR waits for your manual merge. To drop back to Tier A: `gh variable delete AUTONOMY_TIER`.
 
+## Experiments
+
+Separate from the self-building coding loop, `engine/run-experiment.mjs <name>` runs a
+research experiment: it invokes headless Claude Code with a prompt (`engine/experiments/<name>.md`),
+the machine researches public sources and writes `engine/.experiment-report.json`, and the
+runner renders a Lab entry and opens a PR. Experiments are **not** backlog items — nothing
+is checked off. The `engine/PAUSED` kill-switch halts them too.
+
+```bash
+node engine/run-experiment.mjs agent-weekly --dry-run   # preview the entry, no side effects
+node engine/run-experiment.mjs agent-weekly             # real run: research → branch → PR
+```
+
+**Agent Weekly** is the first experiment: a weekly, factual digest of the past 7 days in
+AI agents (vendor releases, agent frameworks, trending repos, arXiv papers, HN threads),
+every item carrying a real fetched link. It renders as a `type: digest` entry that
+publishes direct (`draft: false`).
+
 ## Cron (once proven)
 
 ```cron
 # daily at 07:00 — one cycle, log to ~/whatupwolf/engine/cron.log
 0 7 * * * cd ~/whatupwolf && /usr/bin/node engine/run-cycle.mjs >> engine/cron.log 2>&1
+
+# Agent Weekly — Sundays 07:00 (one digest per week)
+0 7 * * 0 cd ~/whatupwolf && /usr/bin/node engine/run-experiment.mjs agent-weekly >> engine/experiment.log 2>&1
 ```
