@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
 import { slugify, renderLabEntry, parseCycleReport, resolveStatus } from './lib.mjs';
+import { parseActiveGhAccount } from './lib.mjs';
 
 const SAMPLE = `# Engine Backlog
 
@@ -90,6 +91,56 @@ describe('renderLabEntry', () => {
     // The unescaped/bare forms — which would corrupt the YAML — must not appear.
     expect(unsafeEntry).not.toContain('[engine, a,b, c: d]');
     expect(unsafeEntry).not.toMatch(/tags: \[[^\]]*[^"]a,b[^"][^\]]*\]/);
+  });
+});
+
+describe('parseActiveGhAccount', () => {
+  // gh 2.45 no longer supports `gh auth status --active`; we parse the full
+  // status text instead. These samples mirror real gh 2.45 output.
+  const SINGLE = `github.com
+  ✓ Logged in to github.com account wolfazoid (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+`;
+
+  const MULTI = `github.com
+  ✓ Logged in to github.com account wolf-personal (keyring)
+  - Active account: false
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+
+  ✓ Logged in to github.com account wolfazoid (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+`;
+
+  it('returns the single logged-in account marked active', () => {
+    expect(parseActiveGhAccount(SINGLE)).toBe('wolfazoid');
+  });
+  it('returns the active account when several are logged in', () => {
+    expect(parseActiveGhAccount(MULTI)).toBe('wolfazoid');
+  });
+  it('does not return a non-active account listed first', () => {
+    expect(parseActiveGhAccount(MULTI)).not.toBe('wolf-personal');
+  });
+  it('returns "" when no account is marked active', () => {
+    const none = `github.com
+  ✓ Logged in to github.com account wolfazoid (keyring)
+  - Active account: false
+`;
+    expect(parseActiveGhAccount(none)).toBe('');
+  });
+  it('returns "" for empty / logged-out output', () => {
+    expect(parseActiveGhAccount('')).toBe('');
+    expect(parseActiveGhAccount('You are not logged into any GitHub hosts.')).toBe('');
+  });
+  it('coerces non-string input to "" without throwing', () => {
+    expect(parseActiveGhAccount(undefined)).toBe('');
   });
 });
 
