@@ -22,7 +22,13 @@ bullet (no checkbox) so the runner will NOT pick it — promote it to `- [ ]` wh
 - [x] Add engine/lib.mjs helper publicEntryFromReport(privateReport) that runs sanitize() then renderLabEntry() to produce a public lab entry, throwing (fail-closed) if sanitization fails. Unit-test with a clean report and a leaky report.
 - [x] Encode the direct-vs-review gate: add a pure per-type policy (monitor/experiment publish direct; briefing or opinion content sets draft:true) applied when the runner writes the lab entry, and wire it into engine/run-cycle.mjs. Unit-test the policy function.
 
+## Tier 3 — First experiment: Agent Weekly (plan: docs/superpowers/plans/2026-07-17-agent-weekly-experiment.md)
+
+- [ ] Add `digest` to the direct-publish policy in engine/lib.mjs so `draftForType('digest')` returns false (digests publish direct, not draft). Add a unit test.
+- [ ] Extract the commit/push/PR/account-restore machinery from engine/run-cycle.mjs section 7 into a reusable `publishBranch({repoDir, branch, commitMsg, prTitle, prBody, ghUser, dry})` in a new engine/publish.mjs, and rewire run-cycle.mjs to call it. Preserve dry-run (zero side effects) and the gh-account restore + warning. Verify `node engine/run-cycle.mjs --dry-run` is unchanged and tests pass.
+- [ ] Build the Agent Weekly experiment: engine/experiments/agent-weekly.md (the research prompt — weekly AI-agent digest per the spec's sources and format, real-link hard rule, writes engine/.experiment-report.json as {status,summary,tags,body}) and engine/run-experiment.mjs <name> (kill-switch + sync main, invoke `claude -p` with the prompt, render a `type: digest` lab entry via renderLabEntry with draft:false, write src/content/lab/<date>-<name>.md, open a PR via publishBranch — no backlog check-off). Support --dry-run (no side effects), gitignore engine/.experiment-report.json + engine/experiment.log, document the Sunday-07:00 cron in engine/README.md. Verify the dry run previews a valid digest entry.
+
 ## Later (not queued — promote to `- [ ]` when ready)
 
-- **First real experiment** — the engine's actual payload. Direction is being designed in a dedicated brainstorm (site-monitoring was rejected). Promote once the brainstorm lands.
+- **Agent Weekly schema change (GATED — Wolf merges)** — add `digest` to the lab `type` enum in src/content.config.ts. Handled as a separate hand-merged PR since it touches a gated path; kept out of the auto-queue so a needs-human PR can't block the loop.
 - **Experiment-runner framework** — deliberately deferred (YAGNI) until 2–3 real experiments exist to shape the interface. Extract it from the repeated pattern, don't design it speculatively.
