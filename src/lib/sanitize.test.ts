@@ -30,4 +30,36 @@ describe('sanitize — fail closed', () => {
   it('throws SanitizationError when a registered secret reaches the output', () => {
     expect(() => sanitize(leaky)).toThrow(SanitizationError);
   });
+
+  // A secret containing a double-quote would be rewritten by JSON.stringify
+  // (`"` -> `\"`), so scanning the serialized form alone would miss it. Scanning
+  // the raw field value must still catch it.
+  it('catches a secret containing a double-quote that JSON escaping would hide', () => {
+    const report: PrivateReport = {
+      meta: { secrets: ['pa"ss word'] },
+      findings: 'internal detail',
+      public: { title: 'Audit complete', summary: 'Leaked: pa"ss word', tags: ['perf'] },
+    };
+    expect(() => sanitize(report)).toThrow(SanitizationError);
+  });
+
+  // Likewise a secret containing a backslash (`\` -> `\\` under JSON.stringify).
+  it('catches a secret containing a backslash that JSON escaping would hide', () => {
+    const report: PrivateReport = {
+      meta: { secrets: ['C:\\secret\\token'] },
+      findings: 'internal detail',
+      public: { title: 'Path is C:\\secret\\token', summary: 'ok', tags: ['perf'] },
+    };
+    expect(() => sanitize(report)).toThrow(SanitizationError);
+  });
+
+  // The secret can hide in any allowlisted string field, including a tag.
+  it('catches a quote-bearing secret smuggled into a tag', () => {
+    const report: PrivateReport = {
+      meta: { secrets: ['x"y'] },
+      findings: 'internal detail',
+      public: { title: 'Audit complete', summary: 'ok', tags: ['perf', 'x"y'] },
+    };
+    expect(() => sanitize(report)).toThrow(SanitizationError);
+  });
 });
