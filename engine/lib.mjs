@@ -62,6 +62,22 @@ export function resolveStatus(reportStatus, testsPassed, checkPassed) {
   return testsPassed && checkPassed ? reportStatus : 'flagged';
 }
 
+// Parses the output of `gh auth status` and returns the username of the account
+// marked active, or '' if none is found. gh 2.45 dropped the `--active` flag, so
+// instead of asking gh to filter, we scan the full status text: each account
+// block opens with a "Logged in to <host> account <name>" line and is followed
+// by an "Active account: true|false" line. We track the most recently seen
+// account name and return it when its block reports "Active account: true".
+export function parseActiveGhAccount(statusOutput) {
+  let current = '';
+  for (const line of String(statusOutput).split('\n')) {
+    const logged = line.match(/Logged in to \S+ account (\S+)/);
+    if (logged) { current = logged[1]; continue; }
+    if (/Active account:\s*true/i.test(line)) return current;
+  }
+  return '';
+}
+
 export function parseCycleReport(jsonStr) {
   const r = JSON.parse(jsonStr);
   if (r.status !== 'done' && r.status !== 'flagged') {

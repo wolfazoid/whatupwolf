@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickNextItem, markItemDone, slugify, renderLabEntry, parseCycleReport,
-  resolveStatus,
+  resolveStatus, parseActiveGhAccount,
 } from './lib.mjs';
 
 const ENGINE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -34,10 +34,17 @@ function gate(cmd, args) {
 }
 
 function currentGhUser() {
+  // gh 2.45 dropped `gh auth status --active`, so we run plain `gh auth status`
+  // and parse the active account out of the full listing (see parseActiveGhAccount).
+  // gh exits non-zero when logged out; some versions print the listing to stderr,
+  // so fall back to the captured stderr on error.
   try {
-    const out = execFileSync('gh', ['auth', 'status', '--active'], { encoding: 'utf8' });
-    return out.match(/account (\S+)/)?.[1] ?? '';
-  } catch { return ''; }
+    const out = execFileSync('gh', ['auth', 'status'],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    return parseActiveGhAccount(out);
+  } catch (err) {
+    return parseActiveGhAccount(err?.stdout || err?.stderr || '');
+  }
 }
 
 function buildPrompt(task) {
