@@ -35,6 +35,8 @@ export function slugify(text) {
 
 const yamlStr = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
+const yamlFlowScalar = (s) => (/^[A-Za-z0-9_-]+$/.test(String(s)) ? String(s) : yamlStr(s));
+
 export function renderLabEntry({ title, date, type = 'experiment', status, tags = [], live = true, summary, body }) {
   const iso = date.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
   return [
@@ -43,7 +45,7 @@ export function renderLabEntry({ title, date, type = 'experiment', status, tags 
     `date: ${iso}`,
     `type: ${type}`,
     `status: ${status}`,
-    `tags: [${tags.join(', ')}]`,
+    `tags: [${tags.map(yamlFlowScalar).join(', ')}]`,
     `live: ${live}`,
     `summary: ${yamlStr(summary)}`,
     '---',

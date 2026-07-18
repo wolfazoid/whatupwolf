@@ -69,6 +69,28 @@ describe('renderLabEntry', () => {
   it('includes the body after the frontmatter', () => {
     expect(entry.trim().endsWith('Implemented allowlist + fail-closed scan.')).toBe(true);
   });
+
+  it('YAML-escapes unsafe tag values while keeping safe tags bare', () => {
+    const unsafeEntry = renderLabEntry({
+      title: 'Build the sanitization filter',
+      date: new Date('2026-07-18T14:30:00Z'),
+      status: 'done',
+      tags: ['engine', 'a,b', 'c: d'],
+      summary: 'The machine built the sanitizer.',
+      body: 'Implemented allowlist + fail-closed scan.\n',
+    });
+    const tagsLine = unsafeEntry.split('\n').find((l) => l.startsWith('tags:'));
+    expect(tagsLine).toBe('tags: [engine, "a,b", "c: d"]');
+    // Simple safe tag stays bare and unescaped.
+    expect(tagsLine).toMatch(/\[engine, /);
+    // Unsafe tags are quoted so they round-trip as single YAML string scalars
+    // rather than splitting on the comma or parsing as a nested mapping.
+    expect(tagsLine).toContain('"a,b"');
+    expect(tagsLine).toContain('"c: d"');
+    // The unescaped/bare forms — which would corrupt the YAML — must not appear.
+    expect(unsafeEntry).not.toContain('[engine, a,b, c: d]');
+    expect(unsafeEntry).not.toMatch(/tags: \[[^\]]*[^"]a,b[^"][^\]]*\]/);
+  });
 });
 
 describe('parseCycleReport', () => {
