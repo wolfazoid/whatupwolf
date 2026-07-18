@@ -44,7 +44,8 @@ jobs:
           while IFS= read -r f; do
             [ -z "$f" ] && continue
             case "$f" in
-              src/content/lab/*|engine/BACKLOG.md|engine/run-cycle.mjs|engine/lib.mjs|engine/lib.test.mjs|engine/README.md|src/lib/*) ;;
+              engine/CYCLE.md) echo "protected (constitution): $f"; allowed=0 ;;
+              src/content/lab/*|engine/*|src/lib/*) ;;
               *) echo "protected: $f"; allowed=0 ;;
             esac
           done <<< '${{ steps.files.outputs.list }}'
