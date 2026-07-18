@@ -83,6 +83,33 @@ export function renderLabEntry({ title, date, type = 'experiment', status, tags 
   ].join('\n');
 }
 
+// Builds a PUBLIC lab entry from a PRIVATE client report: run the report through
+// `sanitize` (allowlist + fail-closed secret scan) and render the surviving
+// public snapshot as a lab entry. Fail-closed by construction — when a registered
+// secret leaks, `sanitize` throws (SanitizationError) and we let it propagate
+// unchanged, so no entry is ever produced from a report that failed sanitization.
+//
+// `sanitize` is injected rather than imported so this module stays loadable under
+// plain `node` (run-cycle.mjs imports it directly): the sanitizer lives in
+// TypeScript (src/lib/sanitize.ts), which Node can't parse, so importing it here
+// at load time would break the runner. The caller (or a test) passes it in.
+export function publicEntryFromReport(report, { sanitize, date, status = 'done', type, live } = {}) {
+  if (typeof sanitize !== 'function') {
+    throw new TypeError('publicEntryFromReport: a `sanitize` function must be injected');
+  }
+  const snapshot = sanitize(report); // throws on leak — do NOT catch (fail-closed)
+  return renderLabEntry({
+    title: snapshot.title,
+    summary: snapshot.summary,
+    body: snapshot.body ?? '',
+    tags: snapshot.tags ?? [],
+    date,
+    status,
+    ...(type !== undefined ? { type } : {}),
+    ...(live !== undefined ? { live } : {}),
+  });
+}
+
 // Independent verify gate: the machine reports its own status, but the runner
 // re-runs `npm test` and `npm run check` and gets the final say. Any failing
 // gate overrides the report to "flagged" so broken work never ships as "done".
