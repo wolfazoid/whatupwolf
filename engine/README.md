@@ -19,6 +19,16 @@ node engine/run-cycle.mjs             # real cycle: branch → machine → PR
 4. The runner renders `src/content/lab/<date>-<slug>.md`, checks off the backlog item,
    commits, pushes, and opens a PR.
 
+## Re-runs & recovery
+
+The loop is safe to run repeatedly. Branch setup uses `git checkout -B lab/<slug>`, so a
+leftover `lab/<slug>` from an earlier attempt is reset to a fresh copy of `main` instead of
+crashing on "branch already exists". If a cycle fails partway — the machine errors, writes no
+report, or the report won't parse — the runner checks the working tree back out to `main` and
+drops the failed attempt's uncommitted scratch (`git checkout -f main` + `git clean -fd`). Both
+respect `.gitignore`, so `PAUSED`, `cron.log`, `node_modules`, and `.env` are left untouched;
+the next run therefore always starts from a known-good `main`.
+
 ## Git auth
 
 Push/PR use the `wolfazoid` GitHub account (the default account here has no push access).

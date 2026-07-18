@@ -33,6 +33,21 @@ function gate(cmd, args) {
   }
 }
 
+// Returns the working tree to a clean main after a failed cycle, so the always-on
+// loop stays re-runnable: the next run starts from a known-good state instead of a
+// half-finished feature branch. `-f` drops the machine's uncommitted edits (it never
+// commits, so nothing durable is lost) and `git clean -fd` removes any stray files it
+// created. Both respect .gitignore, so PAUSED, cron.log, node_modules, and .env survive.
+function recoverToMain() {
+  if (DRY) return;
+  try {
+    sh('git', ['checkout', '-f', 'main']);
+    sh('git', ['clean', '-fd']);
+  } catch (err) {
+    console.error(`Recovery: could not fully reset to main (${err.message}). Check the working tree by hand.`);
+  }
+}
+
 function currentGhUser() {
   // gh 2.45 dropped `gh auth status --active`, so we run plain `gh auth status`
   // and parse the active account out of the full listing (see parseActiveGhAccount).
@@ -85,8 +100,10 @@ function main() {
   const branch = `lab/${slug}`;
   console.log(`Task:   ${item.title}\nTitle:  ${short}\nBranch: ${branch}`);
 
-  // 3. Fresh branch
-  sh('git', ['checkout', '-b', branch]);
+  // 3. Fresh branch. `-B` creates lab/<slug> when it's new and hard-resets it to
+  //    the current HEAD (main) if an earlier run left it behind, so re-running the
+  //    same task reuses the name cleanly instead of crashing on "branch exists".
+  sh('git', ['checkout', '-B', branch]);
 
   // 4. Run the machine
   let report;
@@ -99,20 +116,17 @@ function main() {
       execFileSync('claude', ['-p', buildPrompt(item.title), '--dangerously-skip-permissions'],
         { cwd: REPO_DIR, stdio: 'inherit' });
     } catch (err) {
-      console.error(`Cycle failed: claude exited with an error (${err.message}). The work is on branch ${branch} for inspection; run \`git checkout main\` to abandon it.`);
-      process.exit(1);
+      throw new Error(`claude exited with an error (${err.message})`);
     }
 
     // 5. Read the machine's report
     if (!existsSync(REPORT)) {
-      console.error(`Cycle failed: no cycle report was written to ${REPORT}. The work is on branch ${branch} for inspection; run \`git checkout main\` to abandon it.`);
-      process.exit(1);
+      throw new Error(`no cycle report was written to ${REPORT}`);
     }
     try {
       report = parseCycleReport(readFileSync(REPORT, 'utf8'));
     } catch (err) {
-      console.error(`Cycle failed: ${err.message}. The work is on branch ${branch} for inspection; run \`git checkout main\` to abandon it.`);
-      process.exit(1);
+      throw new Error(`could not parse the cycle report (${err.message})`);
     }
   }
 
@@ -183,4 +197,10 @@ function main() {
   console.log('Cycle complete — PR opened for review.');
 }
 
-main();
+try {
+  main();
+} catch (err) {
+  console.error(`Cycle failed: ${err.message}. Returning the working tree to a clean main so the loop can re-run.`);
+  recoverToMain();
+  process.exit(1);
+}

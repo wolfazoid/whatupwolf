@@ -15,7 +15,7 @@ bullet (no checkbox) so the runner will NOT pick it — promote it to `- [ ]` wh
 - [x] Fix currentGhUser() in engine/run-cycle.mjs for gh 2.45: do not use the unsupported `gh auth status --active` flag; instead parse `gh auth status` output for the account marked active. Extract the parsing into a pure helper in engine/lib.mjs and unit-test it against sample gh output.
 - [x] Harden the sanitizer secret-scan in src/lib/sanitize.ts against JSON-escaping: scan each allowlisted field's raw string value for registered secrets rather than only JSON.stringify(out), so a secret containing quotes or backslashes cannot evade. Add tests with secrets containing `"` and `\`. Do not weaken the existing seeded tests.
 - [x] Quote unsafe tags in renderLabEntry (engine/lib.mjs): a tag that is purely numeric or a YAML reserved word (true/false/null/yes/no/~) must be quoted so it stays a string and satisfies z.array(z.string()) at build time. Add a unit test.
-- [ ] Make engine/run-cycle.mjs re-runnable: if branch lab/<slug> already exists, reuse or recreate it cleanly instead of crashing; on any cycle failure, check the working tree back out to main. Update engine/README.md to note the behavior.
+- [x] Make engine/run-cycle.mjs re-runnable: if branch lab/<slug> already exists, reuse or recreate it cleanly instead of crashing; on any cycle failure, check the working tree back out to main. Update engine/README.md to note the behavior.
 
 ## Tier 2 — Wire the public/private pipeline (bridge the sanitizer to real experiments)
 
