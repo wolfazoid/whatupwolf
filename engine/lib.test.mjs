@@ -111,6 +111,30 @@ describe('renderLabEntry', () => {
     expect(unsafeEntry).not.toContain('[engine, a,b, c: d]');
     expect(unsafeEntry).not.toMatch(/tags: \[[^\]]*[^"]a,b[^"][^\]]*\]/);
   });
+
+  it('quotes numeric and YAML-reserved-word tags so they stay strings', () => {
+    const entry2 = renderLabEntry({
+      title: 'Build the sanitization filter',
+      date: new Date('2026-07-18T14:30:00Z'),
+      status: 'done',
+      tags: ['engine', '2026', 'true', 'False', 'null', 'yes', 'no', '~'],
+      summary: 'The machine built the sanitizer.',
+      body: 'Implemented allowlist + fail-closed scan.\n',
+    });
+    const tagsLine = entry2.split('\n').find((l) => l.startsWith('tags:'));
+    // A purely-numeric tag would parse as a number if left bare — must be quoted.
+    expect(tagsLine).toContain('"2026"');
+    // Reserved words parse as booleans/null if bare — quote them (any case).
+    expect(tagsLine).toContain('"true"');
+    expect(tagsLine).toContain('"False"');
+    expect(tagsLine).toContain('"null"');
+    expect(tagsLine).toContain('"yes"');
+    expect(tagsLine).toContain('"no"');
+    expect(tagsLine).toContain('"~"');
+    // An ordinary word stays bare.
+    expect(tagsLine).toMatch(/^tags: \[engine, /);
+    expect(tagsLine).toBe('tags: [engine, "2026", "true", "False", "null", "yes", "no", "~"]');
+  });
 });
 
 describe('parseActiveGhAccount', () => {

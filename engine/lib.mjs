@@ -50,7 +50,20 @@ export function shortTitle(fullTitle, max = 72) {
 
 const yamlStr = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
-const yamlFlowScalar = (s) => (/^[A-Za-z0-9_-]+$/.test(String(s)) ? String(s) : yamlStr(s));
+// YAML reserved words that, left bare, parse as a boolean or null rather than a
+// string. Matched case-insensitively (YAML also reads True/NULL/YES the same way).
+const YAML_RESERVED = new Set(['true', 'false', 'null', 'yes', 'no', 'on', 'off', '~']);
+
+// A tag is only safe to emit bare if it's a plain word/number-free token AND it
+// wouldn't be parsed as a non-string: purely-numeric tokens become numbers and
+// reserved words become booleans/null, either of which fails z.array(z.string())
+// at build time. Anything else gets quoted so it stays a string scalar.
+const yamlFlowScalar = (s) => {
+  const str = String(s);
+  const bareSafe =
+    /^[A-Za-z0-9_-]+$/.test(str) && !/^[0-9]+$/.test(str) && !YAML_RESERVED.has(str.toLowerCase());
+  return bareSafe ? str : yamlStr(str);
+};
 
 export function renderLabEntry({ title, date, type = 'experiment', status, tags = [], live = true, summary, body }) {
   const iso = date.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
