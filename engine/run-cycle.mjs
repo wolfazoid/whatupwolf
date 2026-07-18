@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickNextItem, markItemDone, slugify, renderLabEntry, parseCycleReport,
-  resolveStatus, parseActiveGhAccount, shortTitle,
+  resolveStatus, parseActiveGhAccount, shortTitle, draftForType,
 } from './lib.mjs';
 
 const ENGINE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -146,13 +146,20 @@ function main() {
     report.status = resolved;
   }
 
-  // 6. Render the Lab entry + check off the backlog item
+  // 6. Render the Lab entry + check off the backlog item. The runner's own cycles
+  // are factual machine-log posts, so they render as the default 'experiment' type;
+  // the direct-vs-review gate (draftForType) then decides whether the entry ships
+  // live or waits for review. experiment/monitor publish direct; a briefing- or
+  // opinion-typed entry would be stamped draft:true for Wolf to read first.
   const date = new Date();
+  const type = 'experiment';
   const entry = renderLabEntry({
     title: short,
     date,
+    type,
     status: report.status,
     tags: report.tags.length ? report.tags : ['engine'],
+    draft: draftForType(type),
     summary: report.summary,
     body: report.body,
   });
