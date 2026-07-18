@@ -56,11 +56,16 @@ export function sanitize(report: PrivateReport): PublicSnapshot {
   if (body !== undefined) out.body = body;
   if (tags !== undefined) out.tags = tags;
 
-  // Fail closed: scan the emitted payload against every registered secret and
-  // refuse to release it if any survived into a public field.
-  const serialized = JSON.stringify(out);
+  // Fail closed: scan each allowlisted field's RAW string value against every
+  // registered secret. Scanning JSON.stringify(out) would let a secret that
+  // contains `"` or `\` evade the check, because JSON escaping rewrites those
+  // characters (`"` -> `\"`, `\` -> `\\`) so the raw secret no longer appears
+  // as a substring of the serialized form. The raw values carry no such escaping.
+  const rawValues = [out.title, out.summary];
+  if (out.body !== undefined) rawValues.push(out.body);
+  if (out.tags !== undefined) rawValues.push(...out.tags);
   for (const secret of registeredSecrets(report)) {
-    if (serialized.includes(secret)) {
+    if (rawValues.some((value) => value.includes(secret))) {
       throw new SanitizationError(
         `Refusing to emit: registered secret leaked into public output`,
       );
