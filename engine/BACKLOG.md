@@ -42,7 +42,10 @@ bullet (no checkbox) so the runner will NOT pick it — promote it to `- [ ]` wh
 
 ## Tier 6 — Site fixes (GATED — these touch the site, so the PR is needs-human / Wolf merges)
 
-- [ ] Close the Site Health audit's security-header finding: add a `public/_headers` file so Cloudflare serves security headers on all routes — `Strict-Transport-Security` (max-age >= 15552000; includeSubDomains), `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, and a `Content-Security-Policy`. CRITICAL: the site is Astro + React islands (hydration scripts) + Tailwind, and a wrong CSP breaks the LIVE site at runtime in a way CI cannot catch — so ship the CSP as `Content-Security-Policy-Report-Only` first (report, do not enforce), or a conservative policy that allows 'self' plus exactly the script/style sources the build emits. Do NOT break the site. Verify `npm run build` still succeeds. (This PR touches `public/` — a gated path — so it will be labelled needs-human for Wolf's review; that is intended.)
+<!-- CONVENTION: a gated item stays [x] once BUILT (its needs-human PR is open) so the auto-loop
+     doesn't re-pick it and collide with the open PR's branch. It's genuinely done from the
+     engine's side; only Wolf's merge is pending. -->
+- [x] (BUILT — PR #22 open, awaiting Wolf's merge) Close the Site Health audit's security-header finding: add a `public/_headers` file so Cloudflare serves security headers on all routes — `Strict-Transport-Security` (max-age >= 15552000; includeSubDomains), `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `Referrer-Policy: strict-origin-when-cross-origin`, and a `Content-Security-Policy`. CRITICAL: the site is Astro + React islands (hydration scripts) + Tailwind, and a wrong CSP breaks the LIVE site at runtime in a way CI cannot catch — so ship the CSP as `Content-Security-Policy-Report-Only` first (report, do not enforce), or a conservative policy that allows 'self' plus exactly the script/style sources the build emits. Do NOT break the site. Verify `npm run build` still succeeds. (This PR touches `public/` — a gated path — so it will be labelled needs-human for Wolf's review; that is intended.)
 
 ## Later (not queued — promote to `- [ ]` when ready)
 
