@@ -5,8 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickNextItem, markItemDone, slugify, renderLabEntry, parseCycleReport,
-  resolveStatus, parseActiveGhAccount, shortTitle, draftForType,
+  resolveStatus, shortTitle, draftForType,
 } from './lib.mjs';
+import { publishBranch } from './publish.mjs';
 
 const ENGINE_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_DIR = join(ENGINE_DIR, '..');
@@ -45,20 +46,6 @@ function recoverToMain() {
     sh('git', ['clean', '-fd']);
   } catch (err) {
     console.error(`Recovery: could not fully reset to main (${err.message}). Check the working tree by hand.`);
-  }
-}
-
-function currentGhUser() {
-  // gh 2.45 dropped `gh auth status --active`, so we run plain `gh auth status`
-  // and parse the active account out of the full listing (see parseActiveGhAccount).
-  // gh exits non-zero when logged out; some versions print the listing to stderr,
-  // so fall back to the captured stderr on error.
-  try {
-    const out = execFileSync('gh', ['auth', 'status'],
-      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-    return parseActiveGhAccount(out);
-  } catch (err) {
-    return parseActiveGhAccount(err?.stdout || err?.stderr || '');
   }
 }
 
@@ -176,31 +163,20 @@ function main() {
   writeFileSync(entryPath, entry);
   if (existsSync(REPORT)) rmSync(REPORT);
 
-  // 7. Commit, push, PR — as wolfazoid, then restore
-  const prevUser = currentGhUser();
-  sh('gh', ['auth', 'switch', '--user', GH_USER]);
-  try {
-    sh('git', ['add', '-A']);
-    sh('git', ['commit', '-m', `lab: ${short}`]);
-    sh('git', ['push', '-u', 'origin', branch]);
-    const prTitle = `${gateFailed ? '[FLAGGED] ' : ''}lab: ${short}`;
-    const prBody = gateFailed
-      ? `⚠️ The runner's independent verify gate failed (npm test / npm run check) — status overridden to \`flagged\` for review.\n\n${report.summary}`
-      : report.summary;
-    sh('gh', ['pr', 'create', '--title', prTitle, '--body', prBody, '--head', branch, '--base', 'main']);
-  } finally {
-    if (prevUser && prevUser !== GH_USER) {
-      sh('gh', ['auth', 'switch', '--user', prevUser]);
-    } else if (!prevUser) {
-      console.error('');
-      console.error('*'.repeat(70));
-      console.error('WARNING: could not determine the previous gh account.');
-      console.error(`The gh CLI is currently left authenticated as "${GH_USER}".`);
-      console.error(`To restore your account manually, run: gh auth switch --user <account>`);
-      console.error('*'.repeat(70));
-      console.error('');
-    }
-  }
+  // 7. Commit, push, PR — as wolfazoid, then restore (see engine/publish.mjs).
+  const prTitle = `${gateFailed ? '[FLAGGED] ' : ''}lab: ${short}`;
+  const prBody = gateFailed
+    ? `⚠️ The runner's independent verify gate failed (npm test / npm run check) — status overridden to \`flagged\` for review.\n\n${report.summary}`
+    : report.summary;
+  publishBranch({
+    repoDir: REPO_DIR,
+    branch,
+    commitMsg: `lab: ${short}`,
+    prTitle,
+    prBody,
+    ghUser: GH_USER,
+    dry: DRY,
+  });
   console.log('Cycle complete — PR opened for review.');
 }
 
