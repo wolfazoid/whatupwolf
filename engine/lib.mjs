@@ -84,14 +84,14 @@ export function renderLabEntry({ title, date, type = 'experiment', status, tags 
   ].join('\n');
 }
 
-// The direct-vs-review gate, as a pure per-type policy. Monitor and experiment
-// entries are factual machine-log posts — what ran, what changed, pass/fail — so
-// they publish direct (draft:false). Briefing- and opinion-style entries carry a
+// The direct-vs-review gate, as a pure per-type policy. Monitor, experiment, and
+// digest entries are factual machine-log posts — what ran, what changed, pass/fail —
+// so they publish direct (draft:false). Briefing- and opinion-style entries carry a
 // point of view, so they're gated behind draft:true for Wolf to review before they
 // go public (see the Voice & publishing section of engine/CYCLE.md). Any unknown
 // type fails safe to gated, so a new content type is never published unreviewed by
 // accident. Returns the draft flag to stamp on the entry's frontmatter.
-const DIRECT_PUBLISH_TYPES = new Set(['monitor', 'experiment']);
+const DIRECT_PUBLISH_TYPES = new Set(['monitor', 'experiment', 'digest']);
 
 export function draftForType(type) {
   return !DIRECT_PUBLISH_TYPES.has(String(type));

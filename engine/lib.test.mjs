@@ -270,6 +270,10 @@ describe('draftForType', () => {
     expect(draftForType('monitor')).toBe(false);
     expect(draftForType('experiment')).toBe(false);
   });
+  it('publishes digest entries direct (draft:false)', () => {
+    // Digests are factual roll-ups of what ran, so they ship live like other logs.
+    expect(draftForType('digest')).toBe(false);
+  });
   it('gates briefing- and opinion-style entries behind draft:true', () => {
     // These carry a point of view, so a human reviews before they go public.
     expect(draftForType('briefing')).toBe(true);
