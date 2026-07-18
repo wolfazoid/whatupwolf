@@ -176,6 +176,44 @@ export function parseActiveGhAccount(statusOutput) {
   return '';
 }
 
+// Parses a PRIVATE report — the two-block shape a monitor experiment writes:
+// `meta` (the secret registry), `findings` (the full private prose), and `public`
+// (the only block that ships). Validated eagerly and strictly, because every field
+// here feeds the fail-closed rail in sanitize(): a missing `meta.urls` would mean
+// the audited hostname was never registered, and a leak in the public block would
+// then sail through unnoticed. Better to reject a malformed report than to publish
+// from one. Returns a normalized report safe to hand to publicEntryFromReport.
+export function parsePrivateReport(jsonStr) {
+  const r = JSON.parse(jsonStr);
+  if (r.status !== 'done' && r.status !== 'flagged') {
+    throw new Error(`private report: status must be "done" or "flagged", got ${JSON.stringify(r.status)}`);
+  }
+  if (!r.public || typeof r.public !== 'object') {
+    throw new Error('private report: missing the `public` block');
+  }
+  for (const field of ['title', 'summary', 'body']) {
+    if (typeof r.public[field] !== 'string' || !r.public[field].trim()) {
+      throw new Error(`private report: public.${field} must be a non-empty string`);
+    }
+  }
+  if (typeof r.findings !== 'string' || !r.findings.trim()) {
+    throw new Error('private report: `findings` must be a non-empty string');
+  }
+  const meta = r.meta && typeof r.meta === 'object' ? r.meta : {};
+  const strings = (v) => (Array.isArray(v) ? v.map(String) : []);
+  return {
+    status: r.status,
+    meta: { urls: strings(meta.urls), secrets: strings(meta.secrets) },
+    findings: r.findings,
+    public: {
+      title: r.public.title,
+      summary: r.public.summary,
+      body: r.public.body,
+      tags: strings(r.public.tags),
+    },
+  };
+}
+
 export function parseCycleReport(jsonStr) {
   const r = JSON.parse(jsonStr);
   if (r.status !== 'done' && r.status !== 'flagged') {

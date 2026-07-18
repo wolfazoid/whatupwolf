@@ -1,19 +1,35 @@
 #!/usr/bin/env node
-// Runs ONE experiment: invoke headless Claude Code with an experiment prompt to
-// research + write a digest report, then render a Lab entry and open a PR. This is
-// the research loop, separate from the self-building coding loop (run-cycle.mjs);
-// it shares the same kill-switch, main-sync, and publishBranch machinery. Unlike a
-// cycle, an experiment is NOT a backlog item — nothing is checked off.
+// Runs ONE experiment: invoke headless Claude Code with an experiment prompt, then
+// render a Lab entry and open a PR. This is the research loop, separate from the
+// self-building coding loop (run-cycle.mjs); it shares the same kill-switch,
+// main-sync, and publishBranch machinery. Unlike a cycle, an experiment is NOT a
+// backlog item — nothing is checked off.
+//
+// Two `kind`s of experiment run through the same spine and differ only in the
+// middle — how the report is produced and how it becomes a public entry:
+//
+//   digest  — the machine researches from sources and writes a flat report; the
+//             whole report is public and renders directly.
+//   monitor — a deterministic probe collects the facts first, the machine only
+//             judges them, and it writes a PRIVATE two-block report. The private
+//             half is archived to engine/reports/ (gitignored, never published)
+//             and only the curated `public` block ships, through the fail-closed
+//             sanitizer. Nothing renders unless sanitize() clears it.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, rmSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { renderLabEntry, parseCycleReport, draftForType, parseRemoteBranches, uniqueBranchName } from './lib.mjs';
+import {
+  renderLabEntry, parseCycleReport, parsePrivateReport, publicEntryFromReport,
+  draftForType, parseRemoteBranches, uniqueBranchName,
+} from './lib.mjs';
+import { sanitize } from '../src/lib/sanitize.core.mjs';
 import { publishBranch } from './publish.mjs';
 
 const ENGINE_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_DIR = join(ENGINE_DIR, '..');
 const EXPERIMENTS_DIR = join(ENGINE_DIR, 'experiments');
+const REPORTS_DIR = join(ENGINE_DIR, 'reports');
 const REPORT = join(ENGINE_DIR, '.experiment-report.json');
 const PAUSED = join(ENGINE_DIR, 'PAUSED');
 const GH_USER = 'wolfazoid';
@@ -21,11 +37,19 @@ const DRY = process.argv.includes('--dry-run');
 const NAME = process.argv.slice(2).find((a) => !a.startsWith('--'));
 
 // The experiment registry. Each experiment names a prompt file
-// (engine/experiments/<name>.md), the Lab entry `type` its report renders as, and
-// the human-facing title prefix. Deliberately a small literal, not a framework —
-// we extract a general runner only once 2–3 experiments exist to shape it (YAGNI).
+// (engine/experiments/<name>.md), its `kind` (which pipeline runs it), the Lab
+// entry `type` its report renders as, and the human-facing title prefix. A
+// monitor also names the `target` its probe audits. Deliberately a small literal,
+// not a framework — we extract a general runner only once 2–3 experiments exist
+// to shape it (YAGNI).
 const EXPERIMENTS = {
-  'agent-weekly': { type: 'digest', titlePrefix: 'Agent Weekly' },
+  'agent-weekly': { kind: 'digest', type: 'digest', titlePrefix: 'Agent Weekly' },
+  'site-health': {
+    kind: 'monitor',
+    type: 'monitor',
+    titlePrefix: 'Site Health',
+    target: 'https://whatupwolf.com',
+  },
 };
 
 function sh(cmd, args) {
@@ -52,7 +76,42 @@ function buildPrompt(promptPath) {
   return readFileSync(promptPath, 'utf8');
 }
 
-function main() {
+// Invokes headless Claude Code with an experiment prompt and returns the raw text
+// of the report it wrote. `extra` is appended to the prompt — a monitor uses it to
+// hand over the probe Findings, so the machine judges facts it did not collect.
+// The stale report is removed first so a crashed run can't be read as a fresh one.
+function runClaude(promptPath, extra = '') {
+  if (existsSync(REPORT)) rmSync(REPORT);
+  try {
+    execFileSync('claude', ['-p', buildPrompt(promptPath) + extra, '--dangerously-skip-permissions'],
+      { cwd: REPO_DIR, stdio: 'inherit' });
+  } catch (err) {
+    throw new Error(`claude exited with an error (${err.message})`);
+  }
+  if (!existsSync(REPORT)) {
+    throw new Error(`no experiment report was written to ${REPORT}`);
+  }
+  return readFileSync(REPORT, 'utf8');
+}
+
+// A synthetic private report for --dry-run: exercises the real sanitizer against a
+// registered secret it does not leak, so the preview proves the rail is wired up
+// rather than bypassing it.
+function dryRunPrivateReport(day) {
+  return {
+    status: 'done',
+    meta: { urls: ['https://example.invalid'], secrets: ['/a-route'] },
+    findings: '(dry-run) The private half — never published, archived to engine/reports/.',
+    public: {
+      title: `Site Health — week of ${day}`,
+      summary: '(dry-run) An automated sweep of a monitored property completed with no issues flagged.',
+      body: '## What ran\n\n(dry-run) An automated weekly sweep: availability, response time, SSL, links, security headers.\n\n## Result\n\n(dry-run) All key routes healthy, no broken links, SSL valid well beyond the threshold.\n\nFull detail lives in the private report.',
+      tags: ['monitoring'],
+    },
+  };
+}
+
+async function main() {
   // 0. Resolve the experiment before touching git/network, so an unknown name fails
   // fast and cheap.
   if (!NAME) {
@@ -107,50 +166,80 @@ function main() {
   if (suffix) console.log(`(${base} already exists on the remote — using ${branch} instead.)`);
   sh('git', ['checkout', '-B', branch]);
 
-  // 4. Run the machine — it researches and writes engine/.experiment-report.json.
-  let report;
-  if (DRY) {
-    console.log('[dry-run] would invoke: claude -p <prompt> --dangerously-skip-permissions');
-    report = {
-      status: 'done',
-      summary: '(dry-run) Agent Weekly — synthetic digest preview.',
-      tags: ['agents', 'digest'],
-      body: '(dry-run) One-line intro.\n\n**Example item** — what it is · why it matters · https://example.com',
-    };
-  } else {
-    if (existsSync(REPORT)) rmSync(REPORT);
-    try {
-      execFileSync('claude', ['-p', buildPrompt(promptPath), '--dangerously-skip-permissions'],
-        { cwd: REPO_DIR, stdio: 'inherit' });
-    } catch (err) {
-      throw new Error(`claude exited with an error (${err.message})`);
-    }
-
-    // 5. Read the machine's report
-    if (!existsSync(REPORT)) {
-      throw new Error(`no experiment report was written to ${REPORT}`);
-    }
-    try {
-      report = parseCycleReport(readFileSync(REPORT, 'utf8'));
-    } catch (err) {
-      throw new Error(`could not parse the experiment report (${err.message})`);
-    }
-  }
-
-  // 6. Render the Lab entry. Digests are factual machine-log posts, so draftForType
-  // returns false and they publish direct (no human review gate).
+  // 4–6. Produce the report and render the entry. The two kinds diverge here and
+  // rejoin at publish: each sets `entry` (the Lab markdown), `status`, and
+  // `summary` (the PR body), plus whatever it needs to archive.
   const title = `${cfg.titlePrefix} — week of ${day}`;
-  const entry = renderLabEntry({
-    title,
-    date,
-    type: cfg.type,
-    status: report.status,
-    tags: report.tags.length ? report.tags : ['digest'],
-    draft: draftForType(cfg.type),
-    summary: report.summary,
-    body: report.body,
-  });
   const entryPath = join(REPO_DIR, 'src', 'content', 'lab', `${day}-${NAME}${suffix}.md`);
+  let entry;
+  let status;
+  let summary;
+  let archive = null; // [path, contents] for the private half, monitors only
+
+  if (cfg.kind === 'monitor') {
+    // 4m. Measure first. The probe collects hard facts and never interprets them;
+    // the machine is the judgment layer and sees nothing but these Findings, which
+    // is what keeps its numbers honest. In --dry-run we skip the probe entirely —
+    // it makes real network requests, and the preview must have no side effects.
+    let report;
+    if (DRY) {
+      console.log(`[dry-run] would probe ${cfg.target} and invoke: claude -p <prompt + Findings>`);
+      report = dryRunPrivateReport(day);
+    } else {
+      const { probe } = await import(`./probes/${NAME}.mjs`);
+      const findings = await probe(cfg.target);
+      const extra = `\n\n## Findings\n\nTarget: ${cfg.target}\n\n\`\`\`json\n${JSON.stringify(findings, null, 2)}\n\`\`\`\n`;
+      try {
+        report = parsePrivateReport(runClaude(promptPath, extra));
+      } catch (err) {
+        throw new Error(`could not parse the private report (${err.message})`);
+      }
+      // 5m. Archive the private half beside the run. engine/reports/ is gitignored,
+      // so the specifics stay on the machine and never reach a branch.
+      archive = [join(REPORTS_DIR, `${day}${suffix}.json`), JSON.stringify(report, null, 2) + '\n'];
+    }
+
+    // 6m. Sanitize, then render. publicEntryFromReport emits ONLY the curated
+    // `public` block and rescans it against every registered secret — a leak
+    // throws SanitizationError here and nothing is written. Fail-closed: we
+    // deliberately do not catch it.
+    status = report.status;
+    summary = report.public.summary;
+    entry = publicEntryFromReport(report, { sanitize, date, status, type: cfg.type });
+  } else {
+    // 4d. Run the machine — it researches and writes engine/.experiment-report.json.
+    let report;
+    if (DRY) {
+      console.log('[dry-run] would invoke: claude -p <prompt> --dangerously-skip-permissions');
+      report = {
+        status: 'done',
+        summary: '(dry-run) Agent Weekly — synthetic digest preview.',
+        tags: ['agents', 'digest'],
+        body: '(dry-run) One-line intro.\n\n**Example item** — what it is · why it matters · https://example.com',
+      };
+    } else {
+      try {
+        report = parseCycleReport(runClaude(promptPath));
+      } catch (err) {
+        throw new Error(`could not parse the experiment report (${err.message})`);
+      }
+    }
+
+    // 6d. Render the Lab entry. Digests are factual machine-log posts, so
+    // draftForType returns false and they publish direct (no human review gate).
+    status = report.status;
+    summary = report.summary;
+    entry = renderLabEntry({
+      title,
+      date,
+      type: cfg.type,
+      status,
+      tags: report.tags.length ? report.tags : ['digest'],
+      draft: draftForType(cfg.type),
+      summary,
+      body: report.body,
+    });
+  }
 
   if (DRY) {
     console.log(`[dry-run] would write ${entryPath}`);
@@ -159,6 +248,11 @@ function main() {
   }
 
   writeFileSync(entryPath, entry);
+  if (archive) {
+    mkdirSync(REPORTS_DIR, { recursive: true });
+    writeFileSync(archive[0], archive[1]);
+    console.log(`Private report archived to ${archive[0]} (gitignored).`);
+  }
   if (existsSync(REPORT)) rmSync(REPORT);
 
   // 7. Commit, push, PR — as wolfazoid, then restore (see engine/publish.mjs).
@@ -168,7 +262,7 @@ function main() {
     branch,
     commitMsg: `lab: ${title}`,
     prTitle: `lab: ${title}`,
-    prBody: report.summary,
+    prBody: summary,
     ghUser: GH_USER,
     dry: DRY,
   });
@@ -176,7 +270,7 @@ function main() {
 }
 
 try {
-  main();
+  await main();
 } catch (err) {
   console.error(`Experiment failed: ${err.message}. Returning the working tree to a clean main so the loop can re-run.`);
   recoverToMain();

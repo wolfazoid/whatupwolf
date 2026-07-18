@@ -1,0 +1,8 @@
+# Engine run artifacts — machine-local, never committed.
+
+# The private half of a monitor report: exact routes, cert dates, broken-link
+# URLs. Archived here for Wolf; only the sanitized public block ever ships.
+reports/
+
+# The scratch report a headless run writes, read once and deleted.
+.experiment-report.json
