@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
 import { slugify, renderLabEntry, parseCycleReport, resolveStatus } from './lib.mjs';
-import { parseActiveGhAccount, shortTitle } from './lib.mjs';
+import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
+import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
   it('takes the lead clause before a colon separator', () => {
@@ -184,6 +185,43 @@ describe('parseActiveGhAccount', () => {
   });
   it('coerces non-string input to "" without throwing', () => {
     expect(parseActiveGhAccount(undefined)).toBe('');
+  });
+});
+
+describe('publicEntryFromReport', () => {
+  // A report whose curated public block is genuinely clean.
+  const clean = {
+    meta: { client: 'Acme Corp', urls: ['https://acme.example'], secrets: ['sk-live-123'] },
+    findings: 'internal: regression on acme.example, traced with token sk-live-123',
+    public: { title: 'Audit complete', summary: 'Improved LCP on a key template', tags: ['perf'] },
+  };
+  // A report that smuggles a registered secret (the client name) into a public field.
+  const leaky = {
+    meta: { client: 'Acme Corp', urls: ['https://acme.example'], secrets: ['sk-live-123'] },
+    findings: 'internal detail',
+    public: { title: 'Audit complete', summary: 'Improved LCP for Acme Corp', tags: ['perf'] },
+  };
+  const date = new Date('2026-07-18T14:30:00Z');
+
+  it('sanitizes then renders a public lab entry for a clean report', () => {
+    const entry = publicEntryFromReport(clean, { sanitize, date, status: 'done' });
+    expect(entry).toContain('title: "Audit complete"');
+    expect(entry).toContain('summary: "Improved LCP on a key template"');
+    expect(entry).toContain('status: done');
+    expect(entry).toContain('tags: [perf]');
+    expect(entry).toContain('date: 2026-07-18T14:30');
+    // Fail-closed guarantee: no registered secret survives into the rendered entry.
+    for (const secret of ['Acme Corp', 'acme.example', 'sk-live-123']) {
+      expect(entry).not.toContain(secret);
+    }
+  });
+
+  it('throws (fail-closed) when a registered secret leaks, emitting no entry', () => {
+    expect(() => publicEntryFromReport(leaky, { sanitize, date })).toThrow(SanitizationError);
+  });
+
+  it('requires a sanitize function to be injected', () => {
+    expect(() => publicEntryFromReport(clean, { date })).toThrow(TypeError);
   });
 });
 
