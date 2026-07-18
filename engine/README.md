@@ -104,18 +104,26 @@ publishes direct (`draft: false`).
 
 ## Cron
 
-**Agent Weekly runs Sundays 07:00** via the wrapper `engine/run-weekly.sh`. This is the
-canonical crontab line (source of truth — `crontab -l` should match it):
+**Agent Weekly runs Sundays 07:00** via the wrapper `engine/run-weekly.sh`, and **Site
+Health runs Wednesdays 07:00** via `engine/run-health.sh`. These are the canonical
+crontab lines (source of truth — `crontab -l` should match them):
 
 ```cron
 # Agent Weekly — Sundays 07:00 (halt: touch engine/PAUSED)
 0 7 * * 0 /home/wolf/whatupwolf/engine/run-weekly.sh
+
+# Site Health — Wednesdays 07:00 (halt: touch engine/PAUSED)
+0 7 * * 3 /home/wolf/whatupwolf/engine/run-health.sh
 ```
+
+Both wrappers must be executable (`chmod +x engine/run-*.sh`) — cron won't run them
+otherwise, and it fails quietly.
 
 **Always point cron at the wrapper, never at a `node` path.** Cron runs with a bare
 environment and can't find nvm's `node`/`claude`; a pinned versioned path
-(`…/v24.15.0/bin`) rots *silently* the moment nvm upgrades node — on a Sunday nobody is
-watching. `run-weekly.sh` sources nvm to use whatever node is current, so there is nothing
-to remember or update after a node upgrade. (No cron is installed for the self-building
+(`…/v24.15.0/bin`) rots *silently* the moment nvm upgrades node — on a Sunday or a
+Wednesday nobody is watching. Each wrapper sources nvm to use whatever node is current, so
+there is nothing to remember or update after a node upgrade. (No cron is installed for the
+self-building
 `run-cycle.mjs` loop yet — its backlog runs on demand; give it its own wrapper if you ever
 schedule it.)
