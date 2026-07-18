@@ -1,13 +1,16 @@
 name: Guard
 
-# Path-based trust boundary. A PR may auto-merge ONLY if every changed file is
-# within the allowlist (the machine's own zone: Lab posts + build machinery).
-# Anything touching the core site, Wolf's writing/work, config, the engine's
-# constitution (CYCLE.md), or .github/** is flagged for Wolf's manual merge.
+# Path-based trust boundary. A PR is "allowlisted" only if every changed file is
+# within the machine's own zone (Lab posts + build machinery). Anything touching
+# the core site, Wolf's writing/work, config, the engine's constitution
+# (CYCLE.md), or .github/** is flagged for Wolf's manual merge.
 #
-# Auto-merge only actually fires once repo-level auto-merge + branch protection
-# are enabled (Tier B). Until then this job is inert-but-ready: the enable step
-# no-ops with a note, so the system stays contained (Tier A) by default.
+# TIER SWITCH: this guard only auto-merges when the repo variable AUTONOMY_TIER
+# is set to "B" (Tier B, hands-off). Unset/anything-else = Tier A: the guard
+# LABELS ONLY and never merges — every PR waits for Wolf. This avoids the trap
+# that `gh pr merge --auto` immediately merges a mergeable PR when there is no
+# branch protection to wait behind. Tier B is only safe WITH branch protection
+# requiring the `build` check (see engine/README.md).
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -47,11 +50,15 @@ jobs:
           done <<< '${{ steps.files.outputs.list }}'
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
 
-      - name: Enable auto-merge (allowlisted PRs only)
-        if: steps.guard.outputs.allowed == '1'
+      - name: Enable auto-merge (allowlisted PRs, Tier B only)
+        if: steps.guard.outputs.allowed == '1' && vars.AUTONOMY_TIER == 'B'
         run: |
           gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --squash \
-            || echo "Auto-merge not enabled at repo level yet (Tier A) — PR left open for manual merge."
+            || echo "Could not enable auto-merge — PR left open for manual merge."
+
+      - name: Tier A — allowlisted, auto-merge OFF
+        if: steps.guard.outputs.allowed == '1' && vars.AUTONOMY_TIER != 'B'
+        run: echo "✅ Allowlisted PR. Tier A (AUTONOMY_TIER != B) — auto-merge is OFF; left open for your manual merge."
 
       - name: Flag protected PRs for human review
         if: steps.guard.outputs.allowed != '1'

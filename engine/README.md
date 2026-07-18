@@ -47,16 +47,16 @@ Layered, most-accessible first:
 
 - **Tier A (default, contained):** the machine opens PRs; a human merges each. A CI guard
   (`.github/workflows/ci.yml` + `guard.yml`) runs on every PR.
-- **Tier B (hands-off):** enable repo auto-merge + branch protection requiring the `build`
-  check. Then PRs whose diff is entirely within the guard allowlist (Lab posts + engine
-  machinery) auto-merge on green; anything touching the core site, Wolf's writing/work,
-  config, `CYCLE.md`, or `.github/**` is labelled `needs-human` and waits for review.
+- **Tier B (hands-off):** the guard auto-merges an allowlisted PR only when BOTH are true,
+  and they must be set up **in this order**:
+  1. **Branch protection on `main` requiring the `build` check.** This is the safety piece —
+     it's what makes auto-merge *wait* for CI. Without it, `gh pr merge --auto` merges a
+     mergeable PR immediately, before CI finishes. (We learned this the hard way: an early
+     PR auto-merged ~22s before its CI passed.)
+  2. **Flip the guard's tier switch:** `gh variable set AUTONOMY_TIER --body B`.
 
-  Turn Tier B on:
-  ```bash
-  gh repo edit wolfazoid/whatupwolf --enable-auto-merge
-  # + branch protection requiring the "build" status check (see setup notes)
-  ```
+  In Tier A (the default — variable unset), the guard **labels only and never merges**;
+  every PR waits for your manual merge. To drop back to Tier A: `gh variable delete AUTONOMY_TIER`.
 
 ## Cron (once proven)
 
