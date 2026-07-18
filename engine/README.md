@@ -57,13 +57,17 @@ Layered, most-accessible first:
 
 - **Tier A (default, contained):** the machine opens PRs; a human merges each. A CI guard
   (`.github/workflows/ci.yml` + `guard.yml`) runs on every PR.
-- **Tier B (hands-off):** the guard auto-merges an allowlisted PR only when BOTH are true,
-  and they must be set up **in this order**:
-  1. **Branch protection on `main` requiring the `build` check.** This is the safety piece —
-     it's what makes auto-merge *wait* for CI. Without it, `gh pr merge --auto` merges a
-     mergeable PR immediately, before CI finishes. (We learned this the hard way: an early
-     PR auto-merged ~22s before its CI passed.)
-  2. **Flip the guard's tier switch:** `gh variable set AUTONOMY_TIER --body B`.
+- **Tier B (hands-off):** the guard auto-merges an allowlisted PR only when ALL THREE are
+  set up, **in this order**:
+  1. **Branch protection on `main` requiring the `build` check** —
+     `gh api --method PUT repos/wolfazoid/whatupwolf/branches/main/protection` with
+     `required_status_checks.contexts: ["build"]`. This is the safety piece: it's what makes
+     auto-merge *wait* for CI. Without it, `gh pr merge --auto` merges a mergeable PR
+     immediately, before CI finishes (an early PR auto-merged ~22s before its CI passed).
+  2. **Enable the repo's "Allow auto-merge" setting** — `gh repo edit wolfazoid/whatupwolf
+     --enable-auto-merge`. Without this, `gh pr merge --auto` can't queue a merge at all and
+     the guard's step no-ops (PRs just stay open). Safe to enable *because* step 1 is in place.
+  3. **Flip the guard's tier switch:** `gh variable set AUTONOMY_TIER --body B`.
 
   In Tier A (the default — variable unset), the guard **labels only and never merges**;
   every PR waits for your manual merge. To drop back to Tier A: `gh variable delete AUTONOMY_TIER`.
