@@ -90,12 +90,20 @@ AI agents (vendor releases, agent frameworks, trending repos, arXiv papers, HN t
 every item carrying a real fetched link. It renders as a `type: digest` entry that
 publishes direct (`draft: false`).
 
-## Cron (once proven)
+## Cron
+
+**Agent Weekly runs Sundays 07:00** via the wrapper `engine/run-weekly.sh`. This is the
+canonical crontab line (source of truth — `crontab -l` should match it):
 
 ```cron
-# daily at 07:00 — one cycle, log to ~/whatupwolf/engine/cron.log
-0 7 * * * cd ~/whatupwolf && /usr/bin/node engine/run-cycle.mjs >> engine/cron.log 2>&1
-
-# Agent Weekly — Sundays 07:00 (one digest per week)
-0 7 * * 0 cd ~/whatupwolf && /usr/bin/node engine/run-experiment.mjs agent-weekly >> engine/experiment.log 2>&1
+# Agent Weekly — Sundays 07:00 (halt: touch engine/PAUSED)
+0 7 * * 0 /home/wolf/whatupwolf/engine/run-weekly.sh
 ```
+
+**Always point cron at the wrapper, never at a `node` path.** Cron runs with a bare
+environment and can't find nvm's `node`/`claude`; a pinned versioned path
+(`…/v24.15.0/bin`) rots *silently* the moment nvm upgrades node — on a Sunday nobody is
+watching. `run-weekly.sh` sources nvm to use whatever node is current, so there is nothing
+to remember or update after a node upgrade. (No cron is installed for the self-building
+`run-cycle.mjs` loop yet — its backlog runs on demand; give it its own wrapper if you ever
+schedule it.)
