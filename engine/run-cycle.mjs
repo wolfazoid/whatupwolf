@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickNextItem, markItemDone, slugify, renderLabEntry, parseCycleReport,
-  resolveStatus, parseActiveGhAccount,
+  resolveStatus, parseActiveGhAccount, shortTitle,
 } from './lib.mjs';
 
 const ENGINE_DIR = dirname(fileURLToPath(import.meta.url));
@@ -80,9 +80,10 @@ function main() {
   const backlogMd = readFileSync(BACKLOG, 'utf8');
   const item = pickNextItem(parseBacklog(backlogMd));
   if (!item) { console.log('Backlog empty — nothing to do.'); return; }
-  const slug = slugify(item.title);
+  const short = shortTitle(item.title);
+  const slug = slugify(short);
   const branch = `lab/${slug}`;
-  console.log(`Task:   ${item.title}\nBranch: ${branch}`);
+  console.log(`Task:   ${item.title}\nTitle:  ${short}\nBranch: ${branch}`);
 
   // 3. Fresh branch
   sh('git', ['checkout', '-b', branch]);
@@ -134,7 +135,7 @@ function main() {
   // 6. Render the Lab entry + check off the backlog item
   const date = new Date();
   const entry = renderLabEntry({
-    title: item.title,
+    title: short,
     date,
     status: report.status,
     tags: report.tags.length ? report.tags : ['engine'],
@@ -159,9 +160,9 @@ function main() {
   sh('gh', ['auth', 'switch', '--user', GH_USER]);
   try {
     sh('git', ['add', '-A']);
-    sh('git', ['commit', '-m', `lab: ${item.title}`]);
+    sh('git', ['commit', '-m', `lab: ${short}`]);
     sh('git', ['push', '-u', 'origin', branch]);
-    const prTitle = `${gateFailed ? '[FLAGGED] ' : ''}lab: ${item.title}`;
+    const prTitle = `${gateFailed ? '[FLAGGED] ' : ''}lab: ${short}`;
     const prBody = gateFailed
       ? `⚠️ The runner's independent verify gate failed (npm test / npm run check) — status overridden to \`flagged\` for review.\n\n${report.summary}`
       : report.summary;

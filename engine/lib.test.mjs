@@ -1,7 +1,26 @@
 import { describe, it, expect } from 'vitest';
 import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
 import { slugify, renderLabEntry, parseCycleReport, resolveStatus } from './lib.mjs';
-import { parseActiveGhAccount } from './lib.mjs';
+import { parseActiveGhAccount, shortTitle } from './lib.mjs';
+
+describe('shortTitle', () => {
+  it('takes the lead clause before a colon separator', () => {
+    expect(shortTitle('Fix currentGhUser() in run-cycle for gh 2.45: do not use --active'))
+      .toBe('Fix currentGhUser() in run-cycle for gh 2.45');
+  });
+  it('takes the lead clause before a spaced em-dash', () => {
+    expect(shortTitle('Build the sanitization filter — implement src/lib/sanitize.ts'))
+      .toBe('Build the sanitization filter');
+  });
+  it('caps length with an ellipsis', () => {
+    const out = shortTitle('a'.repeat(100));
+    expect(out.length).toBeLessThanOrEqual(72);
+    expect(out.endsWith('…')).toBe(true);
+  });
+  it('leaves an already-short title unchanged', () => {
+    expect(shortTitle('Quote unsafe tags in renderLabEntry')).toBe('Quote unsafe tags in renderLabEntry');
+  });
+});
 
 const SAMPLE = `# Engine Backlog
 

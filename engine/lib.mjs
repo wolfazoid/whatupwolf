@@ -33,6 +33,21 @@ export function slugify(text) {
     .replace(/-+$/g, '');
 }
 
+// Condenses a verbose backlog line into a short title for the PR / commit /
+// branch / Lab entry. Takes the lead clause before the first ':' or spaced
+// dash separator, then caps the length with an ellipsis. The full backlog line
+// still goes to the machine as its task — only the human-facing labels shorten.
+export function shortTitle(fullTitle, max = 72) {
+  let t = String(fullTitle).split(/:\s|\s[—–-]\s/)[0].trim();
+  if (t.length > max) {
+    t = t.slice(0, max - 1);
+    const sp = t.lastIndexOf(' ');
+    if (sp > max * 0.6) t = t.slice(0, sp); // prefer a word boundary over a mid-word cut
+    t = `${t.trimEnd()}…`;
+  }
+  return t;
+}
+
 const yamlStr = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
 
 const yamlFlowScalar = (s) => (/^[A-Za-z0-9_-]+$/.test(String(s)) ? String(s) : yamlStr(s));
