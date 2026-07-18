@@ -6,7 +6,7 @@ const lab = defineCollection({
   schema: z.object({
     title: z.string(),
     date: z.coerce.date(),
-    type: z.enum(['experiment', 'briefing', 'monitor', 'note']),
+    type: z.enum(['experiment', 'briefing', 'monitor', 'note', 'digest']),
     status: z.string().default('done'),
     tags: z.array(z.string()).default([]),
     live: z.boolean().default(false),
