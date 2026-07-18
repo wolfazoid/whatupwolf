@@ -55,6 +55,13 @@ export function renderLabEntry({ title, date, type = 'experiment', status, tags 
   ].join('\n');
 }
 
+// Independent verify gate: the machine reports its own status, but the runner
+// re-runs `npm test` and `npm run check` and gets the final say. Any failing
+// gate overrides the report to "flagged" so broken work never ships as "done".
+export function resolveStatus(reportStatus, testsPassed, checkPassed) {
+  return testsPassed && checkPassed ? reportStatus : 'flagged';
+}
+
 export function parseCycleReport(jsonStr) {
   const r = JSON.parse(jsonStr);
   if (r.status !== 'done' && r.status !== 'flagged') {
