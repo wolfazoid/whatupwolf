@@ -3,6 +3,7 @@ import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
 import { slugify, renderLabEntry, parseCycleReport, parsePrivateReport, resolveStatus, draftForType } from './lib.mjs';
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
+import { branchForItem, pickBuildableItem } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -345,6 +346,62 @@ describe('parseRemoteBranches', () => {
   it('ignores lines that are not refs/heads entries', () => {
     const out = 'warning: something\nc0ffee00\trefs/tags/v1\nc0ffee11\trefs/heads/main';
     expect(parseRemoteBranches(out)).toEqual(['main']);
+  });
+});
+
+describe('branchForItem', () => {
+  it('shortens then slugifies the backlog line into a lab/ branch', () => {
+    expect(branchForItem('Build the sanitization filter — implement src/lib/sanitize.ts'))
+      .toBe('lab/build-the-sanitization-filter');
+  });
+  it('matches the name the runner checks out for the same item', () => {
+    const title = 'Close the Site Health security-header finding: gated public/_headers';
+    expect(branchForItem(title)).toBe(`lab/${slugify(shortTitle(title))}`);
+  });
+});
+
+describe('pickBuildableItem', () => {
+  const items = parseBacklog(`
+- [x] Bootstrap the loop
+- [ ] Build the sanitization filter
+- [ ] Build the experiment-runner framework
+`);
+
+  it('returns the first unchecked item and its branch when nothing is taken', () => {
+    const next = pickBuildableItem(items, []);
+    expect(next.item.title).toBe('Build the sanitization filter');
+    expect(next.branch).toBe('lab/build-the-sanitization-filter');
+  });
+
+  it('skips an item whose branch already has an open PR', () => {
+    // The bug this fixes: a gated PR waiting on Wolf parked the loop on the same
+    // item every cycle, rebuilding it and colliding on the branch name.
+    const next = pickBuildableItem(items, ['lab/build-the-sanitization-filter']);
+    expect(next.item.title).toBe('Build the experiment-runner framework');
+    expect(next.branch).toBe('lab/build-the-experiment-runner-framework');
+  });
+
+  it('keeps skipping past several in-flight items', () => {
+    const taken = ['lab/build-the-sanitization-filter', 'lab/build-the-experiment-runner-framework'];
+    expect(pickBuildableItem(items, taken)).toBeNull();
+  });
+
+  it('never returns a done item, even when its branch is free', () => {
+    expect(pickBuildableItem(parseBacklog('- [x] Bootstrap the loop'), [])).toBeNull();
+  });
+
+  it('returns null for an empty backlog', () => {
+    expect(pickBuildableItem([], [])).toBeNull();
+  });
+
+  it('defaults to "nothing taken" when no branch list is supplied', () => {
+    // --dry-run and the no-gh path pass nothing; that must read as fully buildable.
+    expect(pickBuildableItem(items).item.title).toBe('Build the sanitization filter');
+  });
+
+  it('ignores taken branches that match no backlog item', () => {
+    expect(pickBuildableItem(items, ['main', 'lab/something-else']).item.title)
+      .toBe('Build the sanitization filter');
   });
 });
 
