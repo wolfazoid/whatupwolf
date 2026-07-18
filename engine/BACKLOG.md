@@ -28,6 +28,10 @@ bullet (no checkbox) so the runner will NOT pick it — promote it to `- [ ]` wh
 - [x] Extract the commit/push/PR/account-restore machinery from engine/run-cycle.mjs section 7 into a reusable `publishBranch({repoDir, branch, commitMsg, prTitle, prBody, ghUser, dry})` in a new engine/publish.mjs, and rewire run-cycle.mjs to call it. Preserve dry-run (zero side effects) and the gh-account restore + warning. Verify `node engine/run-cycle.mjs --dry-run` is unchanged and tests pass.
 - [x] Build the Agent Weekly experiment: engine/experiments/agent-weekly.md (the research prompt — weekly AI-agent digest per the spec's sources and format, real-link hard rule, writes engine/.experiment-report.json as {status,summary,tags,body}) and engine/run-experiment.mjs <name> (kill-switch + sync main, invoke `claude -p` with the prompt, render a `type: digest` lab entry via renderLabEntry with draft:false, write src/content/lab/<date>-<name>.md, open a PR via publishBranch — no backlog check-off). Support --dry-run (no side effects), gitignore engine/.experiment-report.json + engine/experiment.log, document the Sunday-07:00 cron in engine/README.md. Verify the dry run previews a valid digest entry.
 
+## Tier 4 — Engine hardening
+
+- [ ] Make engine/run-experiment.mjs resilient to an existing remote branch: a same-day re-run collides on the date-based branch name (`git push` non-fast-forward, cycle fails). Force-push the throwaway experiment branch (it's fully regenerated from main each run, so nothing is lost), or append a short unique suffix to the branch name. Preserve `--dry-run` (no side effects) and note the behavior in engine/README.md.
+
 ## Later (not queued — promote to `- [ ]` when ready)
 
 - **Agent Weekly schema change (GATED — Wolf merges)** — add `digest` to the lab `type` enum in src/content.config.ts. Handled as a separate hand-merged PR since it touches a gated path; kept out of the auto-queue so a needs-human PR can't block the loop.
