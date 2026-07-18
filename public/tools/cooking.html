@@ -1,0 +1,981 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
+<title>Cook Mode — a recipe reader for messy hands</title>
+<meta name="description" content="Paste a recipe, cook it one step at a time. Per-step timers, scaling, unit conversion, and a screen that stays awake. Self-contained, offline, no accounts.">
+<style>
+  :root {
+    --bg: #0f0f0e;
+    --panel: #191917;
+    --panel-2: #232320;
+    --line: #34342f;
+    --ink: #f4f1ea;
+    --ink-dim: #a3a096;
+    --accent: #ffb454;
+    --accent-ink: #1b1508;
+    --ok: #7ec96f;
+    --warn: #ff7b6b;
+    --radius: 14px;
+    --step-size: clamp(1.6rem, 5.2vw, 3.1rem);
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #faf8f3; --panel: #fff; --panel-2: #f1ede3; --line: #ddd7c8;
+      --ink: #1c1b17; --ink-dim: #6d6a5f; --accent: #b8681a; --accent-ink: #fff;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior: none;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  h1, h2, h3 { line-height: 1.2; margin: 0; }
+
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 1.25rem 1rem 6rem; }
+  header.masthead { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin-bottom: .35rem; }
+  header.masthead h1 { font-size: 1.35rem; letter-spacing: -.01em; }
+  .kicker { color: var(--ink-dim); font-size: .8rem; text-transform: uppercase; letter-spacing: .09em; }
+  .lede { color: var(--ink-dim); margin: .5rem 0 1.5rem; }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 1rem; }
+  .card + .card { margin-top: 1rem; }
+
+  label.field { display: block; font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-dim); margin-bottom: .4rem; }
+  textarea, input[type="text"] {
+    width: 100%; background: var(--bg); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 10px; padding: .7rem .8rem;
+    font: inherit; resize: vertical;
+  }
+  textarea { min-height: 15rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .88rem; line-height: 1.5; }
+  textarea:focus, input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .btn {
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+    padding: .6rem 1rem; font-weight: 600;
+  }
+  .btn:hover { border-color: var(--ink-dim); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.ghost { background: transparent; }
+  .btn.big { padding: .95rem 1.4rem; font-size: 1.05rem; width: 100%; }
+  .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+  .row.end { justify-content: flex-end; }
+  .spacer { flex: 1; }
+  .muted { color: var(--ink-dim); font-size: .85rem; }
+  .err { color: var(--warn); font-size: .9rem; margin-top: .6rem; }
+
+  /* ---- controls: scaling + units ---- */
+  .controls { display: flex; gap: .75rem; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+  .stepper { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; background: var(--panel-2); }
+  .stepper button { background: none; border: 0; padding: .45rem .9rem; font-size: 1.15rem; line-height: 1; }
+  .stepper .val { padding: .45rem .25rem; min-width: 5.5rem; text-align: center; font-variant-numeric: tabular-nums; font-size: .92rem; }
+  .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .segmented button { background: none; border: 0; padding: .45rem .85rem; font-size: .85rem; color: var(--ink-dim); }
+  .segmented button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+
+  /* ---- ingredients ---- */
+  ul.ing { list-style: none; margin: 1rem 0 0; padding: 0; }
+  ul.ing li { border-top: 1px solid var(--line); }
+  ul.ing li:first-child { border-top: 0; }
+  ul.ing label { display: flex; gap: .7rem; align-items: baseline; padding: .6rem .1rem; cursor: pointer; }
+  ul.ing input { accent-color: var(--accent); width: 1.15rem; height: 1.15rem; flex: none; align-self: center; }
+  ul.ing .qty { font-variant-numeric: tabular-nums; font-weight: 650; min-width: 5.6rem; }
+  ul.ing .name { flex: 1; }
+  ul.ing input:checked ~ .qty, ul.ing input:checked ~ .name { opacity: .42; text-decoration: line-through; }
+  .subhead { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-dim); }
+
+  /* ---- cook mode ---- */
+  #cook { position: fixed; inset: 0; background: var(--bg); display: none; flex-direction: column; z-index: 20; }
+  body.cooking #cook { display: flex; }
+  body.cooking { overflow: hidden; }
+
+  .cook-top { display: flex; align-items: center; gap: .5rem; padding: max(.6rem, env(safe-area-inset-top)) .8rem .5rem; border-bottom: 1px solid var(--line); }
+  .pill { font-size: .75rem; border: 1px solid var(--line); border-radius: 999px; padding: .28rem .6rem; color: var(--ink-dim); background: var(--panel); }
+  .pill.on { color: var(--ok); border-color: color-mix(in oklab, var(--ok) 45%, transparent); }
+  .pill.off { color: var(--ink-dim); }
+  .icon-btn { background: none; border: 1px solid var(--line); border-radius: 999px; padding: .3rem .7rem; font-size: .8rem; }
+
+  .progress { display: flex; gap: 3px; padding: .55rem .8rem 0; }
+  .progress i { flex: 1; height: 3px; border-radius: 2px; background: var(--line); }
+  .progress i.done { background: var(--ink-dim); }
+  .progress i.now { background: var(--accent); }
+
+  .stage { flex: 1; position: relative; display: flex; flex-direction: column; min-height: 0; }
+  .stage-scroll { flex: 1; overflow-y: auto; padding: 1.4rem 1.2rem 1.2rem; -webkit-overflow-scrolling: touch; }
+  .step-no { color: var(--ink-dim); font-size: .8rem; text-transform: uppercase; letter-spacing: .1em; margin-bottom: .8rem; }
+  .step-text { font-size: var(--step-size); line-height: 1.28; font-weight: 550; letter-spacing: -.015em; margin: 0; text-wrap: pretty; }
+  .step-ings { margin: 1.6rem 0 0; display: flex; flex-wrap: wrap; gap: .45rem; }
+  .step-ings .chip { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: .35rem .8rem; font-size: .95rem; }
+  .step-ings .chip b { font-variant-numeric: tabular-nums; }
+  .step-timers { margin: 1.1rem 0 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+  .timer-btn { background: var(--panel); border: 1px dashed var(--accent); color: var(--accent); border-radius: 999px; padding: .5rem 1rem; font-weight: 600; }
+
+  /* invisible tap halves — the whole screen is the button */
+  .tapzone { position: absolute; top: 0; bottom: 0; width: 34%; background: none; border: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  .tapzone.prev { left: 0; }
+  .tapzone.next { right: 0; width: 50%; }
+  .tapzone:active { background: color-mix(in oklab, var(--ink) 6%, transparent); }
+
+  .cook-bottom { display: flex; gap: .6rem; padding: .6rem .8rem max(.7rem, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+  .cook-bottom .btn { flex: 1; }
+  .cook-bottom .btn.wide { flex: 2; }
+
+  .done-note { text-align: center; padding: 3rem 1rem; }
+  .done-note h2 { font-size: 2rem; margin-bottom: .6rem; }
+
+  /* ---- timer tray ---- */
+  #tray { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; display: flex; flex-direction: column; gap: .4rem; padding: .5rem .7rem max(.5rem, env(safe-area-inset-bottom)); pointer-events: none; }
+  body.cooking #tray { bottom: 4.2rem; }
+  .timer {
+    pointer-events: auto; display: flex; align-items: center; gap: .7rem;
+    background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+    border-radius: 10px; padding: .5rem .7rem; box-shadow: 0 6px 24px rgba(0,0,0,.28);
+  }
+  .timer.ringing { border-left-color: var(--warn); animation: pulse 1s steps(2) infinite; }
+  @keyframes pulse { 50% { background: color-mix(in oklab, var(--warn) 22%, var(--panel)); } }
+  .timer .clock { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 1.15rem; min-width: 4.2rem; }
+  .timer .lbl { flex: 1; font-size: .85rem; color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .footnote { margin-top: 2rem; color: var(--ink-dim); font-size: .82rem; }
+  .footnote a { color: inherit; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+</style>
+</head>
+<body>
+
+<!-- ================= SETUP / OVERVIEW ================= -->
+<div class="wrap" id="home">
+  <header class="masthead">
+    <h1>Cook Mode</h1>
+    <span class="kicker">a recipe reader for messy hands</span>
+  </header>
+  <p class="lede">
+    Paste any recipe as plain text. It becomes one big step at a time — tap anywhere to advance,
+    timers pulled straight out of the words, quantities that scale, and a screen that refuses to sleep.
+    Everything runs in this one file, offline. Nothing is uploaded.
+  </p>
+
+  <section class="card" id="paste-card">
+    <label class="field" for="src">Recipe text</label>
+    <textarea id="src" spellcheck="false" placeholder="Paste a recipe here — a title, an ingredients list, then the steps.
+
+Roast Chicken
+Serves 4
+
+Ingredients
+1 whole chicken (about 1.6 kg)
+2 tbsp olive oil
+1 tsp flaky salt
+1/2 lemon
+
+Method
+1. Heat the oven to 220C.
+2. Rub the chicken with the olive oil and salt.
+3. Roast for 20 minutes, then turn down to 180C and roast for 1 hour."></textarea>
+    <div class="row" style="margin-top:.8rem">
+      <button class="btn primary" id="parse">Read this recipe</button>
+      <button class="btn ghost" id="demo">Load an example</button>
+      <span class="spacer"></span>
+      <button class="btn ghost" id="clear">Clear</button>
+    </div>
+    <p class="err" id="parse-err" hidden></p>
+  </section>
+
+  <section id="overview" hidden>
+    <div class="card">
+      <h2 id="r-title">Recipe</h2>
+      <div class="controls" style="margin-top:.9rem">
+        <div class="stepper" role="group" aria-label="Servings">
+          <button id="serv-down" aria-label="Fewer servings">−</button>
+          <span class="val" id="serv-val">4 servings</span>
+          <button id="serv-up" aria-label="More servings">+</button>
+        </div>
+        <div class="segmented" role="group" aria-label="Units">
+          <button id="u-orig" aria-pressed="true">As written</button>
+          <button id="u-metric" aria-pressed="false">Metric</button>
+          <button id="u-us" aria-pressed="false">US</button>
+        </div>
+      </div>
+      <ul class="ing" id="ing-list"></ul>
+      <p class="muted" id="scale-note" style="margin:.9rem 0 0"></p>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <span class="subhead" id="steps-head">Steps</span>
+        <span class="spacer"></span>
+        <label class="row muted" style="gap:.4rem;cursor:pointer">
+          <input type="checkbox" id="speak-toggle" style="accent-color:var(--accent)">
+          Read steps aloud
+        </label>
+      </div>
+      <ol id="step-list" style="margin:.9rem 0 0;padding-left:1.3rem"></ol>
+      <div style="margin-top:1.1rem">
+        <button class="btn primary big" id="start">Start cooking</button>
+      </div>
+    </div>
+  </section>
+
+  <p class="footnote">
+    Built as a lab experiment for <a href="/lab">whatupwolf.com/lab</a>. One HTML file, no build step,
+    no dependencies, no network calls — save it and it still works on a plane.
+  </p>
+</div>
+
+<!-- ================= COOK MODE ================= -->
+<div id="cook" aria-hidden="true">
+  <div class="cook-top">
+    <button class="icon-btn" id="exit">← Exit</button>
+    <span class="spacer"></span>
+    <span class="pill" id="wake-pill" title="Screen wake lock">screen</span>
+    <button class="icon-btn" id="cook-speak" aria-pressed="false">🔊</button>
+  </div>
+  <div class="progress" id="progress" aria-hidden="true"></div>
+  <div class="stage">
+    <div class="stage-scroll" id="stage-scroll">
+      <div id="step-view">
+        <p class="step-no" id="step-no">Step 1 of 3</p>
+        <p class="step-text" id="step-text"></p>
+        <div class="step-ings" id="step-ings"></div>
+        <div class="step-timers" id="step-timers"></div>
+      </div>
+      <div class="done-note" id="done-note" hidden>
+        <h2>Done.</h2>
+        <p class="muted">Every step is behind you. Go eat.</p>
+        <div style="margin-top:1.4rem"><button class="btn" id="done-exit">Back to the recipe</button></div>
+      </div>
+    </div>
+    <button class="tapzone prev" id="tap-prev" aria-label="Previous step"></button>
+    <button class="tapzone next" id="tap-next" aria-label="Next step"></button>
+  </div>
+  <div class="cook-bottom">
+    <button class="btn" id="btn-prev">← Back</button>
+    <button class="btn primary wide" id="btn-next">Next →</button>
+  </div>
+</div>
+
+<div id="tray" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+/* =========================================================================
+   Pure helpers — quantity parsing, scaling, unit conversion, timer sniffing.
+   Kept free of DOM so they stay easy to reason about (and to test).
+   ========================================================================= */
+
+const VULGAR = {
+  '½': 0.5, '⅓': 1/3, '⅔': 2/3, '¼': 0.25, '¾': 0.75, '⅕': 0.2, '⅖': 0.4,
+  '⅗': 0.6, '⅘': 0.8, '⅙': 1/6, '⅚': 5/6, '⅐': 1/7, '⅛': 0.125, '⅜': 0.375,
+  '⅝': 0.625, '⅞': 0.875,
+};
+const WORD_NUM = {
+  a: 1, an: 1, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6,
+  seven: 7, eight: 8, nine: 9, ten: 10, twelve: 12, dozen: 12, half: 0.5,
+};
+
+// Canonical unit name -> { sys, kind, base } where base is ml (volume) or g (mass).
+const UNITS = {
+  tsp:        { sys: 'us', kind: 'v', base: 4.929, label: 'tsp' },
+  tbsp:       { sys: 'us', kind: 'v', base: 14.787, label: 'tbsp' },
+  cup:        { sys: 'us', kind: 'v', base: 236.6, label: 'cup', plural: 'cups' },
+  'fl oz':    { sys: 'us', kind: 'v', base: 29.57, label: 'fl oz' },
+  pint:       { sys: 'us', kind: 'v', base: 473.2, label: 'pint', plural: 'pints' },
+  quart:      { sys: 'us', kind: 'v', base: 946.4, label: 'quart', plural: 'quarts' },
+  gallon:     { sys: 'us', kind: 'v', base: 3785, label: 'gallon', plural: 'gallons' },
+  oz:         { sys: 'us', kind: 'm', base: 28.35, label: 'oz' },
+  lb:         { sys: 'us', kind: 'm', base: 453.6, label: 'lb' },
+  ml:         { sys: 'metric', kind: 'v', base: 1, label: 'ml' },
+  l:          { sys: 'metric', kind: 'v', base: 1000, label: 'l' },
+  g:          { sys: 'metric', kind: 'm', base: 1, label: 'g' },
+  kg:         { sys: 'metric', kind: 'm', base: 1000, label: 'kg' },
+};
+// Everything a recipe might actually type, folded onto the canonical names above.
+const UNIT_ALIASES = {
+  t: 'tsp', tsp: 'tsp', tsps: 'tsp', teaspoon: 'tsp', teaspoons: 'tsp',
+  T: 'tbsp', tbs: 'tbsp', tbsp: 'tbsp', tbsps: 'tbsp', tablespoon: 'tbsp', tablespoons: 'tbsp',
+  c: 'cup', cup: 'cup', cups: 'cup',
+  'fl oz': 'fl oz', 'floz': 'fl oz', 'fluid ounce': 'fl oz', 'fluid ounces': 'fl oz',
+  pt: 'pint', pint: 'pint', pints: 'pint',
+  qt: 'quart', quart: 'quart', quarts: 'quart',
+  gal: 'gallon', gallon: 'gallon', gallons: 'gallon',
+  oz: 'oz', ounce: 'oz', ounces: 'oz',
+  lb: 'lb', lbs: 'lb', pound: 'lb', pounds: 'lb',
+  ml: 'ml', milliliter: 'ml', milliliters: 'ml', millilitre: 'ml', millilitres: 'ml',
+  l: 'l', liter: 'l', liters: 'l', litre: 'l', litres: 'l',
+  g: 'g', gr: 'g', gram: 'g', grams: 'g', gramme: 'g', grammes: 'g',
+  kg: 'kg', kilo: 'kg', kilos: 'kg', kilogram: 'kg', kilograms: 'kg',
+};
+// Units that describe a package or a shape, not an amount — never converted,
+// and never pluralised by us.
+const COUNT_UNITS = new Set(['clove','cloves','sprig','sprigs','can','cans','tin','tins','stick','sticks','bunch','bunches','head','heads','slice','slices','pinch','pinches','handful','handfuls','piece','pieces','stalk','stalks','rasher','rashers','sheet','sheets']);
+
+/** "1 1/2", "1½", "½", "2-3", "1.5" -> number (upper end of a range). */
+function parseQty(raw) {
+  if (!raw) return null;
+  let s = String(raw).trim().toLowerCase();
+  // A range takes its upper end: "2-3 cloves" scales from 3.
+  const range = s.split(/\s*(?:-|–|—|to)\s*/).filter(Boolean);
+  if (range.length === 2 && /\d|[½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅐⅛⅜⅝⅞]/.test(range[1])) s = range[1];
+  if (WORD_NUM[s] != null) return WORD_NUM[s];
+  // Order matters: try "1 1/2" then "1/2" before a bare number, or the plain
+  // \d+ swallows the "1" of "1/2" and leaves "/2" stranded in the name.
+  const mixed = s.match(/^(\d+)\s+(\d+)\s*\/\s*(\d+)/);
+  if (mixed) return parseInt(mixed[1], 10) + parseInt(mixed[2], 10) / parseInt(mixed[3], 10);
+  const frac = s.match(/^(\d+)\s*\/\s*(\d+)/);
+  if (frac) return parseInt(frac[1], 10) / parseInt(frac[2], 10);
+  let total = 0, matched = false;
+  const whole = s.match(/^(\d+(?:\.\d+)?)/);
+  if (whole) { total += parseFloat(whole[1]); s = s.slice(whole[0].length).trim(); matched = true; }
+  // "½", possibly glued on: "1½"
+  if (VULGAR[s[0]] != null) { total += VULGAR[s[0]]; matched = true; }
+  return matched ? total : null;
+}
+
+// Value + glyph together: keying a map by 1/3 as a float loses the ⅓, and
+// "1" + "1/3" renders as the unreadable "11/3".
+const NICE = [
+  [1/8, '⅛'], [1/6, '⅙'], [1/5, '⅕'], [1/4, '¼'], [1/3, '⅓'], [3/8, '⅜'],
+  [2/5, '⅖'], [1/2, '½'], [3/5, '⅗'], [5/8, '⅝'], [2/3, '⅔'], [3/4, '¾'],
+  [4/5, '⅘'], [5/6, '⅚'], [7/8, '⅞'],
+];
+
+/** Render a scaled number the way a cook would write it, not the way a float is. */
+function fmtQty(n) {
+  if (n == null || !isFinite(n)) return '';
+  if (n === 0) return '0';
+  if (n >= 100) return String(Math.round(n / 5) * 5);
+  if (n >= 20) return String(Math.round(n));
+  const whole = Math.floor(n + 1e-9);
+  const frac = n - whole;
+  if (frac < 0.04) return String(whole);
+  if (frac > 0.96) return String(whole + 1);
+  let best = null, bestErr = Infinity;
+  for (const [value, glyph] of NICE) {
+    const err = Math.abs(frac - value);
+    if (err < bestErr) { bestErr = err; best = glyph; }
+  }
+  if (bestErr > 0.035) {
+    // No clean fraction — a decimal is more honest than a wrong ⅓.
+    return String(Math.round(n * 100) / 100);
+  }
+  return whole ? whole + best : best;
+}
+
+// Fraction alternative first — see parseQty.
+const NUM = '\\d+\\s*\\/\\s*\\d+|\\d+(?:\\.\\d+)?|[½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅐⅛⅜⅝⅞]';
+const QTY_RE = new RegExp(
+  '^((?:' + NUM + ')(?:\\s*(?:-|–|—|to)\\s*(?:' + NUM + '))?(?:\\s*(?:\\d+\\s*\\/\\s*\\d+|[½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅐⅛⅜⅝⅞]))?)\\s*(.*)$'
+);
+
+/** Split "2 tbsp olive oil, finely chopped" into its parts. */
+function parseIngredient(line) {
+  const text = line.replace(/^[-*•–]\s*/, '').trim();
+  const m = text.match(QTY_RE);
+  if (!m) return { qty: null, unit: null, name: text, raw: text };
+  const qty = parseQty(m[1]);
+  let rest = m[2].trim();
+  // Longest-first so "fl oz" wins over "oz".
+  let unit = null;
+  const um = rest.match(/^(fl\.?\s*oz|fluid ounces?|[a-zA-Z]+\.?)\b\s*/);
+  if (um) {
+    const key = um[1].replace(/\./g, '').replace(/\s+/g, ' ').toLowerCase();
+    const canon = UNIT_ALIASES[key] || (COUNT_UNITS.has(key) ? key : null);
+    if (canon) { unit = canon; rest = rest.slice(um[0].length).trim(); }
+  }
+  return { qty, unit, name: rest || text, raw: text };
+}
+
+/** Convert to a target system, but only when the result is a number a cook wants. */
+function convert(qty, unit, target) {
+  const u = UNITS[unit];
+  if (qty == null || !u || target === 'orig' || u.sys === target) return { qty, unit };
+  const base = qty * u.base; // ml or g
+  if (target === 'metric') {
+    if (u.kind === 'v') return base >= 1000 ? { qty: round2(base / 1000), unit: 'l' } : { qty: roundMetric(base), unit: 'ml' };
+    return base >= 1000 ? { qty: round2(base / 1000), unit: 'kg' } : { qty: roundMetric(base), unit: 'g' };
+  }
+  if (u.kind === 'v') {
+    if (base >= 946) return { qty: round2(base / 946.4), unit: 'quart' };
+    if (base >= 118) return { qty: base / 236.6, unit: 'cup' };
+    if (base >= 14) return { qty: base / 14.787, unit: 'tbsp' };
+    return { qty: base / 4.929, unit: 'tsp' };
+  }
+  if (base >= 454) return { qty: base / 453.6, unit: 'lb' };
+  return { qty: base / 28.35, unit: 'oz' };
+}
+const round2 = (n) => Math.round(n * 100) / 100;
+/** Grams and millilitres are read at a glance — no cook wants 236.6 g. */
+function roundMetric(n) {
+  if (n >= 100) return Math.round(n / 5) * 5;
+  if (n >= 20) return Math.round(n);
+  return Math.round(n * 2) / 2;
+}
+
+function unitLabel(unit, qty) {
+  if (!unit) return '';
+  const u = UNITS[unit];
+  if (!u) return unit; // count unit, already written as the recipe had it
+  if (u.plural && qty != null && qty > 1.01) return u.plural;
+  return u.label;
+}
+
+/** "Simmer for 20-25 minutes" -> a 25 minute timer, labelled with the verb. */
+function findTimers(text) {
+  const re = /(\d+(?:\.\d+)?|[½¼¾])\s*(?:(?:-|–|—|to)\s*(\d+(?:\.\d+)?))?\s*(hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\b/gi;
+  const out = [];
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const lo = VULGAR[m[1]] != null ? VULGAR[m[1]] : parseFloat(m[1]);
+    const hi = m[2] ? parseFloat(m[2]) : lo;
+    const unit = m[3].toLowerCase();
+    const mult = /^h/.test(unit) ? 3600 : /^m/.test(unit) ? 60 : 1;
+    // Bare "m"/"s"/"h" are ambiguous enough to skip unless glued to a digit.
+    const seconds = Math.round(hi * mult);
+    if (!isFinite(seconds) || seconds < 5 || seconds > 24 * 3600) continue;
+    const label = m[0].trim();
+    if (!out.some((t) => t.seconds === seconds)) out.push({ seconds, label, range: hi !== lo });
+  }
+  return out;
+}
+
+function fmtClock(sec) {
+  const s = Math.max(0, Math.round(sec));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+  const pad = (n) => String(n).padStart(2, '0');
+  return h ? h + ':' + pad(m) + ':' + pad(ss) : m + ':' + pad(ss);
+}
+
+function fmtDuration(sec) {
+  if (sec % 3600 === 0 && sec >= 3600) return (sec / 3600) + (sec === 3600 ? ' hour' : ' hours');
+  if (sec >= 60 && sec % 60 === 0) return (sec / 60) + ' min';
+  return sec + ' sec';
+}
+
+/* ---------------- recipe parsing ---------------- */
+
+const ING_HEAD = /^\s*(?:#+\s*)?\**\s*ingredients?\b/i;
+const STEP_HEAD = /^\s*(?:#+\s*)?\**\s*(?:steps?|method|instructions?|directions?|preparation|to\s+make)\b/i;
+const SERVES = /\b(?:serves|servings?|yield(?:s)?|makes)\b[^0-9]{0,10}(\d+)|(\d+)\s*servings?\b/i;
+
+function looksLikeIngredient(line) {
+  return /^\s*[-*•]?\s*(?:\d|[½⅓⅔¼¾⅕⅖⅗⅘⅙⅚⅐⅛⅜⅝⅞])/.test(line) && line.trim().length < 90;
+}
+
+function parseRecipe(input) {
+  const raw = String(input || '').replace(/\r/g, '');
+  const lines = raw.split('\n');
+  const clean = (s) => s.replace(/^\s*(?:#+\s*)?\**\s*/, '').replace(/\**\s*$/, '').trim();
+
+  let title = '';
+  let servings = null;
+  const sm = raw.match(SERVES);
+  if (sm) servings = parseInt(sm[1] || sm[2], 10);
+
+  let iStart = -1, sStart = -1;
+  lines.forEach((l, i) => {
+    if (iStart < 0 && ING_HEAD.test(l)) iStart = i;
+    if (sStart < 0 && STEP_HEAD.test(l)) sStart = i;
+  });
+
+  // First non-empty line that isn't a heading or a yield note is the title.
+  for (const l of lines) {
+    const t = clean(l);
+    if (!t) continue;
+    if (ING_HEAD.test(l) || STEP_HEAD.test(l) || /^serves\b|^yield/i.test(t)) break;
+    title = t.replace(/^recipe:\s*/i, '');
+    break;
+  }
+
+  let ingLines = [], stepLines = [];
+  if (iStart >= 0 && sStart > iStart) {
+    ingLines = lines.slice(iStart + 1, sStart);
+    stepLines = lines.slice(sStart + 1);
+  } else if (iStart >= 0) {
+    ingLines = lines.slice(iStart + 1);
+  } else if (sStart >= 0) {
+    ingLines = lines.slice(0, sStart);
+    stepLines = lines.slice(sStart + 1);
+  } else {
+    // No headings at all: the leading run of quantity-ish lines is the list,
+    // everything after the first prose line is the method.
+    const body = lines.map(clean);
+    let i = 0;
+    while (i < body.length && (!body[i] || body[i] === title || /^serves\b|^yield/i.test(body[i]))) i++;
+    const start = i;
+    while (i < body.length && (!body[i] || looksLikeIngredient(body[i]))) i++;
+    ingLines = lines.slice(start, i);
+    stepLines = lines.slice(i);
+  }
+
+  const ingredients = ingLines
+    .map(clean)
+    .filter((l) => l && !ING_HEAD.test(l) && !/^serves\b|^yield/i.test(l))
+    .map(parseIngredient);
+
+  let steps = stepLines
+    .map((l) => clean(l).replace(/^(?:\d+[.)]|step\s*\d+[:.)]?)\s*/i, '').trim())
+    .filter((l) => l && !STEP_HEAD.test(l));
+
+  // A single wall of prose still deserves one-step-at-a-time treatment.
+  if (steps.length === 1 && steps[0].length > 220) {
+    steps = steps[0]
+      .split(/(?<=[.!?])\s+(?=[A-Z0-9])/)
+      .reduce((acc, sentence) => {
+        const last = acc[acc.length - 1];
+        if (last && (last + ' ' + sentence).length < 180) acc[acc.length - 1] = last + ' ' + sentence;
+        else acc.push(sentence);
+        return acc;
+      }, []);
+  }
+
+  return { title: title || 'Recipe', servings, ingredients, steps };
+}
+
+/** Which ingredients does this step actually need? Cheap noun overlap. */
+const STOP = new Set(['the','a','an','and','or','of','to','in','into','with','for','from','on','at','until','then','about','large','small','medium','finely','roughly','chopped','sliced','diced','fresh','freshly','ground','plus','more','extra','taste','optional','room','temperature','cut','pieces','divided','well','very','good','quality']);
+const singular = (w) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w);
+function ingredientTokens(name) {
+  return String(name).toLowerCase()
+    .replace(/\([^)]*\)/g, ' ')
+    .split(/[^a-z]+/)
+    .filter((w) => w.length > 2 && !STOP.has(w))
+    .map(singular);
+}
+/**
+ * A token shared by two ingredients ("chicken" in both thighs and stock)
+ * can't tell them apart, so it votes for neither. Showing the wrong chip on a
+ * step is worse than showing none — under-matching is the safe direction.
+ */
+function ingredientsForStep(stepText, ingredients) {
+  const hay = new Set(stepText.toLowerCase().split(/[^a-z]+/).filter(Boolean).map(singular));
+  const seen = new Map();
+  const all = ingredients.map((ing) => ingredientTokens(ing.name));
+  all.forEach((toks) => new Set(toks).forEach((t) => seen.set(t, (seen.get(t) || 0) + 1)));
+  return ingredients.filter((ing, i) => all[i].some((t) => seen.get(t) === 1 && hay.has(t)));
+}
+
+/* =========================================================================
+   App state + DOM
+   ========================================================================= */
+
+const $ = (id) => document.getElementById(id);
+const STORE = 'cookmode.v1';
+
+let recipe = { title: '', servings: null, ingredients: [], steps: [] };
+let baseServings = null;
+let servings = null;
+let unitMode = 'orig';
+let stepIndex = 0;
+let speak = false;
+let checked = new Set();
+
+const factor = () => (baseServings && servings ? servings / baseServings : 1);
+
+/* ---------------- rendering ---------------- */
+
+function scaledIngredient(ing) {
+  const q = ing.qty == null ? null : ing.qty * factor();
+  const c = convert(q, ing.unit, unitMode);
+  const unit = unitLabel(c.unit, c.qty);
+  const qty = c.qty == null ? '' : fmtQty(c.qty);
+  return { qty, unit, text: [qty, unit].filter(Boolean).join(' ') };
+}
+
+function renderIngredients() {
+  const list = $('ing-list');
+  list.innerHTML = '';
+  recipe.ingredients.forEach((ing, i) => {
+    const s = scaledIngredient(ing);
+    const li = document.createElement('li');
+    const label = document.createElement('label');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = checked.has(i);
+    box.addEventListener('change', () => {
+      if (box.checked) checked.add(i); else checked.delete(i);
+      save();
+    });
+    const qty = document.createElement('span');
+    qty.className = 'qty';
+    qty.textContent = s.text;
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = ing.name;
+    label.append(box, qty, name);
+    li.append(label);
+    list.append(li);
+  });
+
+  $('serv-val').textContent = servings ? servings + (servings === 1 ? ' serving' : ' servings') : '—';
+  const f = factor();
+  $('scale-note').textContent = Math.abs(f - 1) < 0.001
+    ? 'Quantities as written. Tick things off as you gather them.'
+    : 'Scaled ' + (Math.round(f * 100) / 100) + '× from ' + baseServings + '. Cooking times and pan sizes do not scale linearly — use your eyes.';
+  $('serv-down').disabled = !servings || servings <= 1;
+}
+
+function renderStepList() {
+  const ol = $('step-list');
+  ol.innerHTML = '';
+  recipe.steps.forEach((s, i) => {
+    const li = document.createElement('li');
+    li.style.marginBottom = '.45rem';
+    li.textContent = s;
+    li.addEventListener('click', () => { stepIndex = i; enterCook(); });
+    li.style.cursor = 'pointer';
+    ol.append(li);
+  });
+  $('steps-head').textContent = recipe.steps.length + ' steps';
+}
+
+function renderStep() {
+  const total = recipe.steps.length;
+  const finished = stepIndex >= total;
+  $('done-note').hidden = !finished;
+  $('step-view').hidden = finished;
+  $('progress').innerHTML = '';
+  for (let i = 0; i < total; i++) {
+    const bar = document.createElement('i');
+    bar.className = i < stepIndex ? 'done' : i === stepIndex ? 'now' : '';
+    $('progress').append(bar);
+  }
+  $('btn-next').textContent = stepIndex >= total - 1 ? 'Finish ✓' : 'Next →';
+  $('btn-prev').disabled = stepIndex === 0;
+  if (finished) return;
+
+  const text = recipe.steps[stepIndex];
+  $('step-no').textContent = 'Step ' + (stepIndex + 1) + ' of ' + total;
+  $('step-text').textContent = text;
+
+  const ings = $('step-ings');
+  ings.innerHTML = '';
+  ingredientsForStep(text, recipe.ingredients).forEach((ing) => {
+    const s = scaledIngredient(ing);
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    if (s.text) {
+      const b = document.createElement('b');
+      b.textContent = s.text + ' ';
+      chip.append(b);
+    }
+    chip.append(document.createTextNode(ing.name));
+    ings.append(chip);
+  });
+
+  const timers = $('step-timers');
+  timers.innerHTML = '';
+  findTimers(text).forEach((t) => {
+    const b = document.createElement('button');
+    b.className = 'timer-btn';
+    b.textContent = '⏱ Start ' + fmtDuration(t.seconds) + (t.range ? ' (upper end)' : '');
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startTimer(t.seconds, 'Step ' + (stepIndex + 1) + ' · ' + t.label);
+    });
+    timers.append(b);
+  });
+
+  $('stage-scroll').scrollTop = 0;
+  if (speak) say(text);
+}
+
+/* ---------------- navigation ---------------- */
+
+function go(delta) {
+  const next = stepIndex + delta;
+  if (next < 0 || next > recipe.steps.length) return;
+  stepIndex = next;
+  renderStep();
+  save();
+  if (navigator.vibrate) navigator.vibrate(8);
+}
+
+function enterCook() {
+  if (!recipe.steps.length) return;
+  document.body.classList.add('cooking');
+  $('cook').setAttribute('aria-hidden', 'false');
+  requestWakeLock();
+  renderStep();
+  save();
+}
+
+function exitCook() {
+  document.body.classList.remove('cooking');
+  $('cook').setAttribute('aria-hidden', 'true');
+  releaseWakeLock();
+  stopSpeaking();
+  save();
+}
+
+/* ---------------- wake lock ---------------- */
+
+let wakeLock = null;
+async function requestWakeLock() {
+  if (!('wakeLock' in navigator)) { setWakePill('unsupported'); return; }
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    setWakePill('on');
+    wakeLock.addEventListener('release', () => setWakePill('off'));
+  } catch (err) {
+    setWakePill('off');
+  }
+}
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  setWakePill('off');
+}
+function setWakePill(state) {
+  const pill = $('wake-pill');
+  pill.className = 'pill ' + (state === 'on' ? 'on' : 'off');
+  pill.textContent = state === 'on' ? '🔆 screen stays on'
+    : state === 'unsupported' ? 'screen lock n/a' : 'screen may sleep';
+}
+// Locks are dropped whenever the tab is backgrounded — take it back on return.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && document.body.classList.contains('cooking')) requestWakeLock();
+});
+
+/* ---------------- timers ---------------- */
+
+let timers = [];
+let timerSeq = 0;
+let audioCtx = null;
+
+function startTimer(seconds, label) {
+  const t = { id: ++timerSeq, endsAt: Date.now() + seconds * 1000, label, ringing: false, node: null };
+  timers.push(t);
+  drawTimers();
+  if (navigator.vibrate) navigator.vibrate(20);
+}
+
+function drawTimers() {
+  const tray = $('tray');
+  tray.innerHTML = '';
+  timers.forEach((t) => {
+    const left = (t.endsAt - Date.now()) / 1000;
+    const el = document.createElement('div');
+    el.className = 'timer' + (t.ringing ? ' ringing' : '');
+    const clock = document.createElement('span');
+    clock.className = 'clock';
+    clock.textContent = t.ringing ? 'DONE' : fmtClock(left);
+    const lbl = document.createElement('span');
+    lbl.className = 'lbl';
+    lbl.textContent = t.label;
+    const dismiss = document.createElement('button');
+    dismiss.className = 'icon-btn';
+    dismiss.textContent = t.ringing ? 'Stop' : 'Cancel';
+    dismiss.addEventListener('click', () => {
+      timers = timers.filter((x) => x.id !== t.id);
+      drawTimers();
+    });
+    el.append(clock, lbl, dismiss);
+    tray.append(el);
+  });
+}
+
+function tick() {
+  let changed = false;
+  timers.forEach((t) => {
+    if (!t.ringing && Date.now() >= t.endsAt) { t.ringing = true; ring(t); changed = true; }
+  });
+  if (timers.length) drawTimers();
+  if (changed && navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+}
+setInterval(tick, 500);
+
+/** A synthesised chime — no audio file, so the page stays a single file. */
+function ring(t) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    for (let i = 0; i < 6; i++) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      const at = audioCtx.currentTime + i * 0.55;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(i % 2 ? 660 : 880, at);
+      gain.gain.setValueAtTime(0.0001, at);
+      gain.gain.exponentialRampToValueAtTime(0.35, at + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.45);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(at);
+      osc.stop(at + 0.5);
+    }
+  } catch (err) { /* no audio available — the flashing tray still shows it */ }
+  if (speak) say('Timer finished. ' + t.label);
+}
+
+/* ---------------- speech ---------------- */
+
+function say(text) {
+  if (!('speechSynthesis' in window)) return;
+  stopSpeaking();
+  const u = new SpeechSynthesisUtterance(text);
+  u.rate = 0.95;
+  window.speechSynthesis.speak(u);
+}
+function stopSpeaking() {
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+}
+function setSpeak(on) {
+  speak = on;
+  $('speak-toggle').checked = on;
+  $('cook-speak').setAttribute('aria-pressed', String(on));
+  $('cook-speak').textContent = on ? '🔊' : '🔇';
+  if (!on) stopSpeaking();
+  save();
+}
+
+/* ---------------- persistence ---------------- */
+
+function save() {
+  try {
+    localStorage.setItem(STORE, JSON.stringify({
+      src: $('src').value, servings, baseServings, unitMode, stepIndex, speak,
+      checked: [...checked], cooking: document.body.classList.contains('cooking'),
+    }));
+  } catch (err) { /* private mode — the session just won't survive a reload */ }
+}
+
+function restore() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(STORE) || 'null'); } catch (err) { saved = null; }
+  if (!saved || !saved.src) return false;
+  $('src').value = saved.src;
+  if (!load(true)) return false;
+  if (saved.baseServings) baseServings = saved.baseServings;
+  if (saved.servings) servings = saved.servings;
+  unitMode = saved.unitMode || 'orig';
+  stepIndex = Math.min(saved.stepIndex || 0, recipe.steps.length);
+  checked = new Set(saved.checked || []);
+  setSpeak(!!saved.speak);
+  syncUnitButtons();
+  renderIngredients();
+  if (saved.cooking) enterCook();
+  return true;
+}
+
+/* ---------------- wiring ---------------- */
+
+function load(quiet) {
+  const parsed = parseRecipe($('src').value);
+  const err = $('parse-err');
+  if (!parsed.steps.length) {
+    if (!quiet) {
+      err.hidden = false;
+      err.textContent = 'No steps found. Add an "Ingredients" and a "Method" heading, or put each step on its own line.';
+    }
+    return false;
+  }
+  err.hidden = true;
+  recipe = parsed;
+  baseServings = parsed.servings || null;
+  servings = baseServings;
+  checked = new Set();
+  stepIndex = 0;
+  $('r-title').textContent = recipe.title;
+  $('overview').hidden = false;
+  renderIngredients();
+  renderStepList();
+  if (!quiet) $('overview').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  save();
+  return true;
+}
+
+function syncUnitButtons() {
+  [['orig', 'u-orig'], ['metric', 'u-metric'], ['us', 'u-us']].forEach(([mode, id]) => {
+    $(id).setAttribute('aria-pressed', String(unitMode === mode));
+  });
+}
+function setUnits(mode) {
+  unitMode = mode;
+  syncUnitButtons();
+  renderIngredients();
+  if (document.body.classList.contains('cooking')) renderStep();
+  save();
+}
+
+$('parse').addEventListener('click', () => load(false));
+$('demo').addEventListener('click', () => { $('src').value = DEMO; load(false); });
+$('clear').addEventListener('click', () => {
+  $('src').value = '';
+  $('overview').hidden = true;
+  try { localStorage.removeItem(STORE); } catch (err) { /* nothing to clear */ }
+});
+$('start').addEventListener('click', enterCook);
+$('exit').addEventListener('click', exitCook);
+$('done-exit').addEventListener('click', exitCook);
+$('btn-next').addEventListener('click', () => go(1));
+$('btn-prev').addEventListener('click', () => go(-1));
+$('tap-next').addEventListener('click', () => go(1));
+$('tap-prev').addEventListener('click', () => go(-1));
+$('serv-up').addEventListener('click', () => {
+  if (!baseServings) { baseServings = 4; servings = 4; }
+  servings++; renderIngredients(); if (document.body.classList.contains('cooking')) renderStep(); save();
+});
+$('serv-down').addEventListener('click', () => {
+  if (servings > 1) { servings--; renderIngredients(); if (document.body.classList.contains('cooking')) renderStep(); save(); }
+});
+$('u-orig').addEventListener('click', () => setUnits('orig'));
+$('u-metric').addEventListener('click', () => setUnits('metric'));
+$('u-us').addEventListener('click', () => setUnits('us'));
+$('speak-toggle').addEventListener('change', (e) => setSpeak(e.target.checked));
+$('cook-speak').addEventListener('click', () => setSpeak(!speak));
+
+document.addEventListener('keydown', (e) => {
+  if (!document.body.classList.contains('cooking')) return;
+  if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); go(1); }
+  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(-1); }
+  else if (e.key === 'Escape') exitCook();
+});
+
+// Swipe, for the hand that has one clean finger left.
+let touchX = null, touchY = null;
+$('cook').addEventListener('touchstart', (e) => {
+  touchX = e.changedTouches[0].clientX; touchY = e.changedTouches[0].clientY;
+}, { passive: true });
+$('cook').addEventListener('touchend', (e) => {
+  if (touchX == null) return;
+  const dx = e.changedTouches[0].clientX - touchX;
+  const dy = e.changedTouches[0].clientY - touchY;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1);
+  touchX = touchY = null;
+}, { passive: true });
+
+const DEMO = `Weeknight Chicken Thighs with Lemon and Olives
+Serves 4
+
+Ingredients
+8 bone-in, skin-on chicken thighs
+2 tbsp olive oil
+1 1/2 tsp flaky salt
+1 large onion, thinly sliced
+4 cloves garlic, sliced
+1 tsp ground cumin
+1/2 tsp black pepper
+1 cup chicken stock
+1/2 cup green olives, pitted
+1 lemon, thinly sliced
+1/4 cup parsley, roughly chopped
+
+Method
+1. Heat the oven to 220C. Pat the chicken thighs dry and season all over with the flaky salt.
+2. Heat the olive oil in a large ovenproof pan over medium-high heat. Lay the thighs in skin-side down and leave them alone for 8 minutes, until the skin is deeply golden. Lift them out onto a plate.
+3. Pour off all but a tablespoon of fat. Add the onion and cook for 5 minutes until softened, then add the garlic, cumin and black pepper and cook for 1 minute more.
+4. Pour in the chicken stock and scrape the bottom of the pan clean. Scatter in the olives and lemon slices.
+5. Nestle the thighs back in, skin-side up, and slide the pan into the oven. Roast for 25 minutes, until the chicken reads 74C at the thickest part.
+6. Rest for 5 minutes, then scatter over the parsley and serve straight from the pan.`;
+
+if (!restore()) { /* fresh visit — the paste box is waiting */ }
+</script>
+</body>
+</html>
