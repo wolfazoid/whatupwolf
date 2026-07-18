@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
-  parseBacklog, pickNextItem, markItemDone, slugify, renderLabEntry, parseCycleReport,
+  parseBacklog, pickBuildableItem, markItemDone, slugify, renderLabEntry, parseCycleReport,
   resolveStatus, shortTitle, draftForType,
 } from './lib.mjs';
 import { publishBranch } from './publish.mjs';
@@ -49,6 +49,40 @@ function recoverToMain() {
   }
 }
 
+// True when `branch` already has an open PR. Read-only, so it runs for real even
+// under --dry-run (nothing is mutated and the answer changes what dry-run reports).
+// Fail-soft: if gh is unavailable or errors, we say "no PR" and let the cycle
+// proceed exactly as it did before this check existed — a broken gh should not
+// wedge the loop.
+function hasOpenPr(branch) {
+  try {
+    const out = execFileSync('gh', ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number'],
+      { cwd: REPO_DIR, encoding: 'utf8' });
+    return JSON.parse(out.trim() || '[]').length > 0;
+  } catch (err) {
+    console.error(`Could not check for an open PR on ${branch} (${err.message}) — assuming none.`);
+    return false;
+  }
+}
+
+// Walks the backlog for the first item the loop can actually build. An unchecked
+// item whose branch already carries an open PR is skipped, not rebuilt: those are
+// gated needs-human PRs waiting on Wolf's review, and rebuilding one would
+// hard-reset the branch under the reviewer (step 3's `checkout -B`) and park the
+// loop on the same item forever. Selection is pure (pickBuildableItem); this
+// function only supplies the answers to "is this branch taken?", one lookup at a
+// time so a long backlog doesn't fan out a gh call per item.
+function pickNextBuildable(items) {
+  const taken = [];
+  for (;;) {
+    const next = pickBuildableItem(items, taken);
+    if (!next) return null;
+    if (!hasOpenPr(next.branch)) return next;
+    console.log(`Skipping "${shortTitle(next.item.title)}" — ${next.branch} already has an open PR awaiting review.`);
+    taken.push(next.branch);
+  }
+}
+
 function buildPrompt(task) {
   const cycle = readFileSync(CYCLE, 'utf8');
   return [
@@ -78,13 +112,14 @@ function main() {
     return;
   }
 
-  // 2. Pick the task
+  // 2. Pick the task, skipping anything already in flight.
   const backlogMd = readFileSync(BACKLOG, 'utf8');
-  const item = pickNextItem(parseBacklog(backlogMd));
-  if (!item) { console.log('Backlog empty — nothing to do.'); return; }
+  const items = parseBacklog(backlogMd);
+  const picked = pickNextBuildable(items);
+  if (!picked) { console.log('Nothing buildable — the backlog is empty or every open item already has a PR.'); return; }
+  const { item, branch } = picked;
   const short = shortTitle(item.title);
   const slug = slugify(short);
-  const branch = `lab/${slug}`;
   console.log(`Task:   ${item.title}\nTitle:  ${short}\nBranch: ${branch}`);
 
   // 3. Fresh branch. `-B` creates lab/<slug> when it's new and hard-resets it to
