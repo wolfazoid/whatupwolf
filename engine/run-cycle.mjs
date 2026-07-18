@@ -12,6 +12,7 @@ const REPO_DIR = join(ENGINE_DIR, '..');
 const BACKLOG = join(ENGINE_DIR, 'BACKLOG.md');
 const CYCLE = join(ENGINE_DIR, 'CYCLE.md');
 const REPORT = join(ENGINE_DIR, '.cycle-report.json');
+const PAUSED = join(ENGINE_DIR, 'PAUSED');
 const GH_USER = 'wolfazoid';
 const DRY = process.argv.includes('--dry-run');
 
@@ -41,6 +42,14 @@ function main() {
   // 1. Sync main
   sh('git', ['checkout', 'main']);
   sh('git', ['pull', '--ff-only', 'origin', 'main']);
+
+  // 1b. Kill switch — a PAUSED sentinel halts the loop. It is honoured whether
+  // created locally (`touch engine/PAUSED`) or committed to main (e.g. from the
+  // GitHub web UI on a phone), since the pull above brings a committed one down.
+  if (!DRY && existsSync(PAUSED)) {
+    console.log('Paused: engine/PAUSED is present — exiting without running a cycle. Remove it to resume.');
+    return;
+  }
 
   // 2. Pick the task
   const backlogMd = readFileSync(BACKLOG, 'utf8');

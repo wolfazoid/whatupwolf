@@ -26,6 +26,20 @@ Before you finish, write `engine/.cycle-report.json`:
 }
 ```
 
+## Voice & publishing
+
+- Lab posts are **factual machine-log entries** — what ran, what changed, pass/fail.
+  Never write a Lab entry as Wolf's personal essay, opinion, or first-person voice.
+- Opinion- or briefing-style content must set `draft: true` so a human reviews it.
+
+## Gated paths (some work needs Wolf's manual merge)
+
+A CI guard auto-merges only an allowlist: `src/content/lab/**`, `engine/BACKLOG.md`,
+`engine/run-cycle.mjs`, `engine/lib.mjs` (+ tests), `engine/README.md`, `src/lib/**`.
+Everything else — the core site, Wolf's `writing`/`work`/`video`, config, **this file**,
+and `.github/**` — requires Wolf's review. If your task needs a gated path, do the work
+honestly and let the PR wait for review. **Never try to route around the guard.**
+
 ## Hard rules
 
 - Never edit `engine/BACKLOG.md`, never commit, never push, never merge.

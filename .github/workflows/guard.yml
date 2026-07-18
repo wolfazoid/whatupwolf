@@ -1,0 +1,60 @@
+name: Guard
+
+# Path-based trust boundary. A PR may auto-merge ONLY if every changed file is
+# within the allowlist (the machine's own zone: Lab posts + build machinery).
+# Anything touching the core site, Wolf's writing/work, config, the engine's
+# constitution (CYCLE.md), or .github/** is flagged for Wolf's manual merge.
+#
+# Auto-merge only actually fires once repo-level auto-merge + branch protection
+# are enabled (Tier B). Until then this job is inert-but-ready: the enable step
+# no-ops with a note, so the system stays contained (Tier A) by default.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  path-guard:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: List changed files
+        id: files
+        run: |
+          files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)
+          echo "Changed files:"; echo "$files"
+          {
+            echo "list<<EOF"
+            echo "$files"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate against allowlist
+        id: guard
+        run: |
+          allowed=1
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              src/content/lab/*|engine/BACKLOG.md|engine/run-cycle.mjs|engine/lib.mjs|engine/lib.test.mjs|engine/README.md|src/lib/*) ;;
+              *) echo "protected: $f"; allowed=0 ;;
+            esac
+          done <<< '${{ steps.files.outputs.list }}'
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge (allowlisted PRs only)
+        if: steps.guard.outputs.allowed == '1'
+        run: |
+          gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --squash \
+            || echo "Auto-merge not enabled at repo level yet (Tier A) — PR left open for manual merge."
+
+      - name: Flag protected PRs for human review
+        if: steps.guard.outputs.allowed != '1'
+        run: |
+          gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label needs-human || true
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "🔒 This PR touches **protected paths** (core site / your content / engine constitution / CI config). Auto-merge was **not** enabled — it needs your review and manual merge."
