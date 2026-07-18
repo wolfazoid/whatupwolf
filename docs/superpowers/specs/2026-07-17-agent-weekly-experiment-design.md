@@ -143,8 +143,12 @@ the flywheel. (The plan decides how much is engine-built vs. hand-built.)
 - Email delivery / any private-report split (unneeded — all public).
 - Additional beats or cadences (add later once this one proves out).
 
-## 10. Open decisions (settle in the plan)
+## 10. Decisions
+
+- **Publishing: direct.** `type: digest` publishes without draft-review from the first entry (confirmed 2026-07-17).
+- **First run: autonomous.** The engine builds and runs the first digest itself — no supervised hand-authored run. "Prove it out" end-to-end (confirmed 2026-07-17).
+
+### Still to settle in the plan
 
 - Exact `claude -p` tool/permission flags for a research run (WebSearch/WebFetch enabled).
-- Whether the machine or a human authors the first digest's initial run (dogfood vs. sanity check).
 - Report shape reuse vs. a dedicated experiment-report schema (lean: reuse `{status,summary,tags,body}`).
