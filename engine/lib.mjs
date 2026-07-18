@@ -23,3 +23,45 @@ export function markItemDone(md, title) {
     })
     .join('\n');
 }
+
+export function slugify(text) {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+    .replace(/-+$/g, '');
+}
+
+const yamlStr = (s) => `"${String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+
+export function renderLabEntry({ title, date, type = 'experiment', status, tags = [], live = true, summary, body }) {
+  const iso = date.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+  return [
+    '---',
+    `title: ${yamlStr(title)}`,
+    `date: ${iso}`,
+    `type: ${type}`,
+    `status: ${status}`,
+    `tags: [${tags.join(', ')}]`,
+    `live: ${live}`,
+    `summary: ${yamlStr(summary)}`,
+    '---',
+    '',
+    String(body).trim(),
+    '',
+  ].join('\n');
+}
+
+export function parseCycleReport(jsonStr) {
+  const r = JSON.parse(jsonStr);
+  if (r.status !== 'done' && r.status !== 'flagged') {
+    throw new Error(`cycle report: status must be "done" or "flagged", got ${JSON.stringify(r.status)}`);
+  }
+  return {
+    status: r.status,
+    summary: String(r.summary ?? ''),
+    tags: Array.isArray(r.tags) ? r.tags.map(String) : [],
+    body: String(r.body ?? ''),
+  };
+}
