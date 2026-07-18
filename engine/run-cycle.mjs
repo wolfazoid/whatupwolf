@@ -54,18 +54,32 @@ function main() {
   sh('git', ['checkout', '-b', branch]);
 
   // 4. Run the machine
-  if (existsSync(REPORT)) rmSync(REPORT);
+  let report;
   if (DRY) {
     console.log('[dry-run] would invoke: claude -p <prompt> --dangerously-skip-permissions');
+    report = { status: 'done', summary: '(dry-run)', tags: ['engine'], body: '(dry-run)' };
   } else {
-    execFileSync('claude', ['-p', buildPrompt(item.title), '--dangerously-skip-permissions'],
-      { cwd: REPO_DIR, stdio: 'inherit' });
-  }
+    if (existsSync(REPORT)) rmSync(REPORT);
+    try {
+      execFileSync('claude', ['-p', buildPrompt(item.title), '--dangerously-skip-permissions'],
+        { cwd: REPO_DIR, stdio: 'inherit' });
+    } catch (err) {
+      console.error(`Cycle failed: claude exited with an error (${err.message}). The work is on branch ${branch} for inspection; run \`git checkout main\` to abandon it.`);
+      process.exit(1);
+    }
 
-  // 5. Read the machine's report
-  const report = DRY
-    ? { status: 'done', summary: '(dry-run)', tags: ['engine'], body: '(dry-run)' }
-    : parseCycleReport(readFileSync(REPORT, 'utf8'));
+    // 5. Read the machine's report
+    if (!existsSync(REPORT)) {
+      console.error(`Cycle failed: no cycle report was written to ${REPORT}. The work is on branch ${branch} for inspection; run \`git checkout main\` to abandon it.`);
+      process.exit(1);
+    }
+    try {
+      report = parseCycleReport(readFileSync(REPORT, 'utf8'));
+    } catch (err) {
+      console.error(`Cycle failed: ${err.message}. The work is on branch ${branch} for inspection; run \`git checkout main\` to abandon it.`);
+      process.exit(1);
+    }
+  }
 
   // 6. Render the Lab entry + check off the backlog item
   const date = new Date();
@@ -99,7 +113,17 @@ function main() {
     sh('git', ['push', '-u', 'origin', branch]);
     sh('gh', ['pr', 'create', '--fill', '--head', branch, '--base', 'main']);
   } finally {
-    if (prevUser && prevUser !== GH_USER) sh('gh', ['auth', 'switch', '--user', prevUser]);
+    if (prevUser && prevUser !== GH_USER) {
+      sh('gh', ['auth', 'switch', '--user', prevUser]);
+    } else if (!prevUser) {
+      console.error('');
+      console.error('*'.repeat(70));
+      console.error('WARNING: could not determine the previous gh account.');
+      console.error(`The gh CLI is currently left authenticated as "${GH_USER}".`);
+      console.error(`To restore your account manually, run: gh auth switch --user <account>`);
+      console.error('*'.repeat(70));
+      console.error('');
+    }
   }
   console.log('Cycle complete — PR opened for review.');
 }
