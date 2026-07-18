@@ -11,3 +11,6 @@ npm-debug.log*
 .env.production
 # macOS
 .DS_Store
+
+engine/.cycle-report.json
+engine/cron.log
