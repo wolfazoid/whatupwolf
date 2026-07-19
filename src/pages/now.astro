@@ -1,42 +1,19 @@
 ---
 import Base from '../layouts/Base.astro';
-import LevelBlock from '../components/LevelBlock.astro';
-import LevelText from '../components/LevelText.astro';
 ---
 <Base title="Now / About — whatupwolf">
   <h1 class="text-2xl font-semibold tracking-tight">Now / About</h1>
-
-  <LevelBlock levels="technical" as="p" class="mt-3 text-[var(--color-muted)] leading-relaxed">
+  <p class="mt-3 text-[var(--color-muted)] leading-relaxed">
     I'm Wolf. I build headless commerce (Shopify Hydrogen), AI agents, and always-on
     systems under <strong class="text-[var(--color-ink)]">wearefeasting</strong>. This
     site is where I run experiments in the open.
-  </LevelBlock>
-  <LevelBlock levels="aware" as="p" class="mt-3 text-[var(--color-muted)] leading-relaxed">
-    I'm Wolf. I build headless storefronts, AI agents, and systems that run themselves,
-    under <strong class="text-[var(--color-ink)]">wearefeasting</strong>. This site is
-    where I build in the open.
-  </LevelBlock>
-  <LevelBlock levels="plain" as="p" class="mt-3 text-[var(--color-muted)] leading-relaxed">
-    I'm Wolf. I build online shops, and software that quietly gets a job done for you —
-    under the name <strong class="text-[var(--color-ink)]">wearefeasting</strong>. I work
-    in public, on this site, so you can judge me by watching the work rather than by
-    reading a sales pitch.
-  </LevelBlock>
-
-  <h2 class="chrome mt-8"><LevelText technical="now" plain="what i'm doing now" /></h2>
-  <LevelBlock levels={['technical', 'aware']} as="ul" class="mt-2 text-[var(--color-muted)] leading-relaxed list-disc pl-5">
+  </p>
+  <h2 class="chrome mt-8">now</h2>
+  <ul class="mt-2 text-[var(--color-muted)] leading-relaxed list-disc pl-5">
     <li>Building this lab and the always-on engine that feeds it.</li>
     <li>Available for select consulting — agents, monitoring, headless commerce.</li>
-  </LevelBlock>
-  <LevelBlock levels="plain" as="ul" class="mt-2 text-[var(--color-muted)] leading-relaxed list-disc pl-5">
-    <li>Building this site, and the system that keeps adding to it on its own.</li>
-    <li>
-      Taking on a few new clients — online shops, useful automation, and keeping watch on
-      things that shouldn't break.
-    </li>
-  </LevelBlock>
-
-  <h2 class="chrome mt-8"><LevelText technical="contact" plain="get in touch" /></h2>
+  </ul>
+  <h2 class="chrome mt-8">contact</h2>
   <p class="mt-2">
     <a href="mailto:wolf@wearefeasting.com" class="text-[var(--color-accent)] font-[var(--font-mono)]">wolf@wearefeasting.com</a>
   </p>

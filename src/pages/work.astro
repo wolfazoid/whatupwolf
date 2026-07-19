@@ -1,7 +1,5 @@
 ---
 import Base from '../layouts/Base.astro';
-import LevelBlock from '../components/LevelBlock.astro';
-import LevelText from '../components/LevelText.astro';
 import { getCollection } from 'astro:content';
 
 const entries = (await getCollection('work'))
@@ -9,12 +7,7 @@ const entries = (await getCollection('work'))
 ---
 <Base title="Work — whatupwolf">
   <h1 class="text-2xl font-semibold tracking-tight">Work</h1>
-  <p class="mt-2 text-[var(--color-muted)]">
-    <LevelText
-      technical="Selected projects. Client work described generically."
-      plain="A few things I've built. I leave client names out on purpose."
-    />
-  </p>
+  <p class="mt-2 text-[var(--color-muted)]">Selected projects. Client work described generically.</p>
   <div class="mt-6">
     {entries.map((e) => (
       <div class="border-b border-[var(--color-line)] py-4">
@@ -25,15 +18,9 @@ const entries = (await getCollection('work'))
         <h3 class="mt-1 font-semibold tracking-tight">
           {e.data.link ? <a href={e.data.link} class="hover:text-[var(--color-accent)]">{e.data.title} ↗</a> : e.data.title}
         </h3>
-        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">
-          <LevelText technical={e.data.summary} {...e.data.summaryLevels} />
-        </p>
-        {/* The stack chips are the one thing on this page that only means
-            something to an engineer, so plain readers don't get them. */}
+        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">{e.data.summary}</p>
         {e.data.stack.length > 0 && (
-          <LevelBlock levels={['technical', 'aware']} class="chrome mt-2 flex flex-wrap gap-2">
-            {e.data.stack.map((s) => <span>{s}</span>)}
-          </LevelBlock>
+          <div class="chrome mt-2 flex flex-wrap gap-2">{e.data.stack.map((s) => <span>{s}</span>)}</div>
         )}
       </div>
     ))}
