@@ -97,6 +97,35 @@ describe('filterLabItems', () => {
     expect(filterLabItems(items, { ...EMPTY_QUERY, search: '  lab   filter ' }).map((i) => i.id)).toEqual(['c']);
   });
 
+  it('matches a term that only appears in a lighter reading of the entry', () => {
+    // A visitor reading the plain level searches the words they can see. The
+    // technical source says "probe"; only the plain variant says "checkup".
+    const translated = item({
+      id: 'd',
+      title: 'Site health probe',
+      titleLevels: { plain: 'A weekly checkup for the website' },
+      summary: 'Audits TLS expiry and CSP headers.',
+      summaryLevels: { plain: 'Checks the site is safe and still working.' },
+    });
+    expect(
+      filterLabItems([translated], { ...EMPTY_QUERY, search: 'checkup' }).map((i) => i.id),
+    ).toEqual(['d']);
+    expect(
+      filterLabItems([translated], { ...EMPTY_QUERY, search: 'safe' }).map((i) => i.id),
+    ).toEqual(['d']);
+  });
+
+  it('still matches the technical wording once an entry is translated', () => {
+    const translated = item({
+      id: 'e',
+      title: 'Site health probe',
+      titleLevels: { plain: 'A weekly checkup for the website' },
+    });
+    expect(
+      filterLabItems([translated], { ...EMPTY_QUERY, search: 'probe' }).map((i) => i.id),
+    ).toEqual(['e']);
+  });
+
   it('does not match on tags — search is title + summary only', () => {
     // 'cooking' is a tag on entry b, but appears in no title or summary.
     expect(filterLabItems(items, { ...EMPTY_QUERY, search: 'cooking' })).toEqual([]);

@@ -17,6 +17,24 @@ const { title, description = 'Personal brand, portfolio, and always-on experimen
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="alternate" type="application/rss+xml" title="whatupwolf" href="/rss.xml" />
+    <!-- Restores the visitor's reading level before first paint. Blocking and
+         inline on purpose: a deferred script would let the technical copy flash
+         before the chosen level replaced it. Kept in sync with
+         src/lib/tech-level.ts by src/lib/tech-level-boot.test.ts. -->
+    <script is:inline>
+      (function () {
+        var root = document.documentElement;
+        var level = 'technical';
+        try {
+          var saved = localStorage.getItem('whatupwolf:tech-level');
+          if (saved === 'technical' || saved === 'aware' || saved === 'plain') level = saved;
+        } catch (e) {
+          /* storage blocked — fall through to the default */
+        }
+        root.dataset.level = level;
+        root.dataset.levelSwitch = 'on';
+      })();
+    </script>
   </head>
   <body>
     <main class="mx-auto max-w-2xl px-5 py-10">

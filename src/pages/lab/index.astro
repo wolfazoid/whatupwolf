@@ -1,6 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
 import LabFilter from '../../components/LabFilter.tsx';
+import LevelBlock from '../../components/LevelBlock.astro';
 import { getCollection } from 'astro:content';
 
 const entries = (await getCollection('lab'))
@@ -12,17 +13,29 @@ const entries = (await getCollection('lab'))
 const items = entries.map((e) => ({
   id: e.id,
   title: e.data.title,
+  titleLevels: e.data.titleLevels,
   ts: e.data.date.toISOString().slice(0, 16).replace('T', ' '),
   type: e.data.type,
   status: e.data.status,
   tags: e.data.tags,
   live: e.data.live,
   summary: e.data.summary,
+  summaryLevels: e.data.summaryLevels,
 }));
 ---
 <Base title="Lab — whatupwolf">
   <h1 class="text-2xl font-semibold tracking-tight">Lab</h1>
-  <p class="mt-2 text-[var(--color-muted)]">A running log of what the machine is doing. Newest first.</p>
+  <LevelBlock levels="technical" as="p" class="mt-2 text-[var(--color-muted)]">
+    A running log of what the machine is doing. Newest first.
+  </LevelBlock>
+  <LevelBlock levels="aware" as="p" class="mt-2 text-[var(--color-muted)]">
+    A running log of what the machine is building. Newest first.
+  </LevelBlock>
+  <LevelBlock levels="plain" as="p" class="mt-2 text-[var(--color-muted)]">
+    A diary of what my automated system is building, newest first. It writes an entry
+    every time it finishes something — this is the unedited record of the work, not a
+    highlight reel.
+  </LevelBlock>
   <div class="mt-6">
     {items.length === 0
       ? <p class="chrome py-4">no entries yet.</p>

@@ -1,5 +1,7 @@
 ---
 title: "Site Health — week of 2026-07-18"
+titleLevels:
+  plain: "Website health check — 18 July 2026"
 date: 2026-07-18T07:07
 type: monitor
 status: flagged
@@ -7,6 +9,9 @@ tags: [monitoring]
 live: true
 draft: false
 summary: "Weekly automated audit of a monitored property: availability, response time, SSL, and link checks all came back clean; the security-header check did not."
+summaryLevels:
+  aware: "Weekly automated audit: availability, response time, SSL and links all came back clean. The security-header check did not — the specifics are held privately."
+  plain: "The weekly automatic check of a website. Everything was up, fast and correctly encrypted, and no links were broken — but it was missing some standard browser protections, so that was flagged and then fixed."
 ---
 
 ## What ran

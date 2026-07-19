@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
+import LevelText from '../components/LevelText.astro';
 import { getCollection } from 'astro:content';
 
 const entries = (await getCollection('writing'))
@@ -8,14 +9,21 @@ const entries = (await getCollection('writing'))
 ---
 <Base title="Writing — whatupwolf">
   <h1 class="text-2xl font-semibold tracking-tight">Writing</h1>
-  <p class="mt-2 text-[var(--color-muted)]">Human-authored essays and posts.</p>
+  <p class="mt-2 text-[var(--color-muted)]">
+    <LevelText
+      technical="Human-authored essays and posts."
+      plain="Essays I wrote myself — these ones aren't the machine's."
+    />
+  </p>
   <div class="mt-6">
     {entries.length === 0 && <p class="chrome py-4">nothing published yet.</p>}
     {entries.map((e) => (
       <div class="border-b border-[var(--color-line)] py-4">
         <div class="chrome">{e.data.date.toISOString().slice(0, 10)}</div>
         <h3 class="mt-1 font-semibold tracking-tight">{e.data.title}</h3>
-        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">{e.data.summary}</p>
+        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">
+          <LevelText technical={e.data.summary} {...e.data.summaryLevels} />
+        </p>
       </div>
     ))}
   </div>

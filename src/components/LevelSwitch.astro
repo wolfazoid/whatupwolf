@@ -1,0 +1,60 @@
+---
+// The site chrome's 3-way reading-level control.
+//
+// Selected state and the per-level hint are both rendered by CSS off the
+// `data-level` attribute the head script already set, so the control is correct
+// on first paint. The script below only persists clicks.
+import { LEVELS, DEFAULT_LEVEL, variantAttr } from '../lib/tech-level';
+---
+<div class="level-switch flex-col items-end gap-1">
+  <div class="flex items-center gap-2">
+    <span class="chrome" id="level-switch-label">read as</span>
+    <div
+      role="group"
+      aria-labelledby="level-switch-label"
+      class="inline-flex overflow-hidden rounded border border-[var(--color-line)]"
+    >
+      {LEVELS.map((level) => (
+        <button
+          type="button"
+          class="level-opt"
+          data-level-opt={level.id}
+          aria-pressed={level.id === DEFAULT_LEVEL ? 'true' : 'false'}
+        >{level.label}</button>
+      ))}
+    </div>
+  </div>
+  <p class="chrome !text-[0.7rem]" aria-live="polite">
+    {LEVELS.map((level) => (
+      <span data-variant={variantAttr([level.id])}>{level.hint}</span>
+    ))}
+  </p>
+</div>
+
+<script>
+  import { LEVELS, STORAGE_KEY, normalizeLevel } from '../lib/tech-level';
+
+  const root = document.documentElement;
+
+  function apply(level: string) {
+    const next = normalizeLevel(level);
+    root.dataset.level = next;
+    for (const button of document.querySelectorAll<HTMLButtonElement>('.level-opt')) {
+      button.setAttribute('aria-pressed', String(button.dataset.levelOpt === next));
+    }
+    try {
+      localStorage.setItem(STORAGE_KEY, next);
+    } catch {
+      // Storage blocked (private mode, cookies off) — the choice still applies
+      // to this page view, it just won't be remembered.
+    }
+  }
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>('.level-opt')) {
+    button.addEventListener('click', () => apply(button.dataset.levelOpt ?? ''));
+  }
+
+  // Correct the server-rendered aria-pressed to whatever the head script
+  // restored from storage.
+  apply(root.dataset.level ?? LEVELS[0].id);
+</script>

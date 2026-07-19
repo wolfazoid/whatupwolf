@@ -1,0 +1,19 @@
+---
+// A single string authored at up to three depths. Renders one element per
+// distinct reading, tagged with the levels it belongs to; global.css shows the
+// one matching the visitor's choice. Unauthored levels fall back (see
+// resolveLevelText), so passing only `technical` renders exactly one element.
+import { variantAttr, variantParts, type LevelText } from '../lib/tech-level';
+
+export interface Props extends LevelText {
+  /** Element to render each reading as — keep it inline inside a paragraph. */
+  as?: string;
+  class?: string;
+}
+
+const { technical, aware, plain, as: Tag = 'span', class: className } = Astro.props;
+const parts = variantParts({ technical, aware, plain });
+---
+{parts.map((part) => (
+  <Tag data-variant={variantAttr(part.levels)} class={className}>{part.text}</Tag>
+))}

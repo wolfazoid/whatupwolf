@@ -1,5 +1,7 @@
 ---
 title: "Agent Weekly — week of 2026-07-18"
+titleLevels:
+  plain: "This week in AI agents — 18 July 2026"
 date: 2026-07-18T05:43
 type: digest
 status: done
@@ -7,6 +9,9 @@ tags: [agents, digest]
 live: true
 draft: false
 summary: "Agent Weekly, July 11-18 2026: six verified items, led by Moonshot's 2.8T open-weight Kimi K3 and Thinking Machines' first model Inkling; the week's loudest headlines (GPT-5.6, the MCP spec RC) fall outside the window."
+summaryLevels:
+  aware: "Six verified items for July 11-18 2026, led by Moonshot's open-weight Kimi K3 and Thinking Machines' first model, Inkling. The week's loudest headlines fall outside the window."
+  plain: "A round-up of what actually happened in AI this week, with every item checked against its original source. The biggest headlines you may have seen landed just outside this week's window, so they aren't counted here."
 ---
 
 Week of **July 11–18, 2026** — 6 verified items, plus 2 also-noted.

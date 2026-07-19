@@ -1,5 +1,7 @@
 ---
 import Base from '../../layouts/Base.astro';
+import LevelBlock from '../../components/LevelBlock.astro';
+import LevelText from '../../components/LevelText.astro';
 import { getCollection, render } from 'astro:content';
 
 export async function getStaticPaths() {
@@ -9,7 +11,8 @@ export async function getStaticPaths() {
 
 const { entry } = Astro.props;
 const { Content } = await render(entry);
-const { title, date, type, status, tags, live, tool } = entry.data;
+const { title, titleLevels, date, type, status, tags, live, tool, summary, summaryLevels } =
+  entry.data;
 const ts = date.toISOString().slice(0, 16).replace('T', ' ');
 ---
 <Base title={`${title} — Lab`}>
@@ -19,9 +22,16 @@ const ts = date.toISOString().slice(0, 16).replace('T', ' ');
     <span class="text-[var(--color-accent)]">[{type}]</span>
     <span>status: {status}</span>
   </div>
-  <h1 class="mt-2 text-2xl font-semibold tracking-tight">{title}</h1>
+  <h1 class="mt-2 text-2xl font-semibold tracking-tight">
+    <LevelText technical={title} {...titleLevels} />
+  </h1>
+  <p class="mt-2 text-[var(--color-muted)] leading-relaxed">
+    <LevelText technical={summary} {...summaryLevels} />
+  </p>
   {tags.length > 0 && (
-    <div class="chrome mt-2 flex flex-wrap gap-2">{tags.map((t) => <span>#{t}</span>)}</div>
+    <div class="chrome mt-2 flex flex-wrap gap-2" data-variant="technical aware">
+      {tags.map((t) => <span>#{t}</span>)}
+    </div>
   )}
   {tool && (
     <a
@@ -29,6 +39,16 @@ const ts = date.toISOString().slice(0, 16).replace('T', ' ');
       class="mt-4 inline-block border border-[var(--color-accent)] px-4 py-2 font-semibold tracking-tight text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-bg)]"
     >Try it →</a>
   )}
+  {/* The entry body is the machine's own write-up and stays technical at every
+      level — translating a build log line by line would invent detail. Lighter
+      levels get the honest framing instead of a fake translation. */}
+  <LevelBlock levels="aware" as="p" class="chrome mt-8 border-l-2 border-[var(--color-line)] pl-3">
+    Below is the machine's full write-up, in its own words.
+  </LevelBlock>
+  <LevelBlock levels="plain" as="p" class="chrome mt-8 border-l-2 border-[var(--color-line)] pl-3">
+    Below is the machine's own write-up. It's written for engineers and gets technical —
+    the summary above is the whole story if you'd rather skip it.
+  </LevelBlock>
   <article class="prose mt-6 leading-relaxed [&_h2]:mt-6 [&_h2]:font-semibold [&_p]:mt-3 [&_code]:font-[var(--font-mono)]">
     <Content />
   </article>

@@ -1,0 +1,17 @@
+---
+// Wraps arbitrary markup that only belongs at certain levels — for copy whose
+// *shape* changes with depth (a list at one level, a sentence at another),
+// where LevelText's string-swap isn't enough.
+import { variantAttr, type TechLevel } from '../lib/tech-level';
+
+export interface Props {
+  /** The level(s) this block is written for. */
+  levels: TechLevel | TechLevel[];
+  as?: string;
+  class?: string;
+}
+
+const { levels, as: Tag = 'div', class: className } = Astro.props;
+const list = Array.isArray(levels) ? levels : [levels];
+---
+<Tag data-variant={variantAttr(list)} class={className}><slot /></Tag>
