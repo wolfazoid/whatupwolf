@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync, existsSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
-  parseBacklog, pickBuildableItem, markItemDone, slugify, renderLabEntry, parseCycleReport,
+  parseBacklog, pickBuildableItem, prListArgs, markItemDone, slugify, renderLabEntry, parseCycleReport,
   resolveStatus, shortTitle, draftForType,
 } from './lib.mjs';
 import { publishBranch } from './publish.mjs';
@@ -49,27 +49,28 @@ function recoverToMain() {
   }
 }
 
-// True when `branch` already has an open PR. Read-only, so it runs for real even
-// under --dry-run (nothing is mutated and the answer changes what dry-run reports).
-// Fail-soft: if gh is unavailable or errors, we say "no PR" and let the cycle
-// proceed exactly as it did before this check existed — a broken gh should not
-// wedge the loop.
-function hasOpenPr(branch) {
+// True when `branch` already has a PR in ANY state — open, closed, or merged.
+// Read-only, so it runs for real even under --dry-run (nothing is mutated and the
+// answer changes what dry-run reports). Fail-soft: if gh is unavailable or errors,
+// we say "no PR" and let the cycle proceed exactly as it did before this check
+// existed — a broken gh should not wedge the loop.
+function branchHasPr(branch) {
   try {
-    const out = execFileSync('gh', ['pr', 'list', '--head', branch, '--state', 'open', '--json', 'number'],
-      { cwd: REPO_DIR, encoding: 'utf8' });
+    const out = execFileSync('gh', prListArgs(branch), { cwd: REPO_DIR, encoding: 'utf8' });
     return JSON.parse(out.trim() || '[]').length > 0;
   } catch (err) {
-    console.error(`Could not check for an open PR on ${branch} (${err.message}) — assuming none.`);
+    console.error(`Could not check for an existing PR on ${branch} (${err.message}) — assuming none.`);
     return false;
   }
 }
 
 // Walks the backlog for the first item the loop can actually build. An unchecked
-// item whose branch already carries an open PR is skipped, not rebuilt: those are
-// gated needs-human PRs waiting on Wolf's review, and rebuilding one would
-// hard-reset the branch under the reviewer (step 3's `checkout -B`) and park the
-// loop on the same item forever. Selection is pure (pickBuildableItem); this
+// item whose branch already carries a PR — open, closed, or merged — is skipped,
+// not rebuilt. An open one is a gated PR waiting on Wolf's review, and rebuilding
+// it would hard-reset the branch under the reviewer (step 3's `checkout -B`); a
+// closed or merged one means the item was already built once and superseded, so
+// rebuilding it just redoes shipped work. Either way the loop would park on the
+// same item forever. Selection is pure (pickBuildableItem); this
 // function only supplies the answers to "is this branch taken?", one lookup at a
 // time so a long backlog doesn't fan out a gh call per item.
 function pickNextBuildable(items) {
@@ -77,8 +78,8 @@ function pickNextBuildable(items) {
   for (;;) {
     const next = pickBuildableItem(items, taken);
     if (!next) return null;
-    if (!hasOpenPr(next.branch)) return next;
-    console.log(`Skipping "${shortTitle(next.item.title)}" — ${next.branch} already has an open PR awaiting review.`);
+    if (!branchHasPr(next.branch)) return next;
+    console.log(`Skipping "${shortTitle(next.item.title)}" — ${next.branch} has already been built into a PR.`);
     taken.push(next.branch);
   }
 }
@@ -116,7 +117,7 @@ function main() {
   const backlogMd = readFileSync(BACKLOG, 'utf8');
   const items = parseBacklog(backlogMd);
   const picked = pickNextBuildable(items);
-  if (!picked) { console.log('Nothing buildable — the backlog is empty or every open item already has a PR.'); return; }
+  if (!picked) { console.log('Nothing buildable — the backlog is empty or every unchecked item has already been built into a PR.'); return; }
   const { item, branch } = picked;
   const short = shortTitle(item.title);
   const slug = slugify(short);

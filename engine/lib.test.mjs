@@ -3,7 +3,7 @@ import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
 import { slugify, renderLabEntry, parseCycleReport, parsePrivateReport, resolveStatus, draftForType } from './lib.mjs';
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
-import { branchForItem, pickBuildableItem } from './lib.mjs';
+import { branchForItem, pickBuildableItem, prListArgs } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -373,9 +373,10 @@ describe('pickBuildableItem', () => {
     expect(next.branch).toBe('lab/build-the-sanitization-filter');
   });
 
-  it('skips an item whose branch already has an open PR', () => {
+  it('skips an item whose branch already has a PR', () => {
     // The bug this fixes: a gated PR waiting on Wolf parked the loop on the same
-    // item every cycle, rebuilding it and colliding on the branch name.
+    // item every cycle, rebuilding it and colliding on the branch name. "Taken"
+    // now covers closed and merged PRs too — see the prListArgs tests below.
     const next = pickBuildableItem(items, ['lab/build-the-sanitization-filter']);
     expect(next.item.title).toBe('Build the experiment-runner framework');
     expect(next.branch).toBe('lab/build-the-experiment-runner-framework');
@@ -402,6 +403,26 @@ describe('pickBuildableItem', () => {
   it('ignores taken branches that match no backlog item', () => {
     expect(pickBuildableItem(items, ['main', 'lab/something-else']).item.title)
       .toBe('Build the sanitization filter');
+  });
+});
+
+describe('prListArgs', () => {
+  it('queries gh for PRs on the given head branch', () => {
+    expect(prListArgs('lab/build-the-sanitization-filter'))
+      .toEqual(['pr', 'list', '--head', 'lab/build-the-sanitization-filter', '--state', 'all', '--json', 'number']);
+  });
+
+  it('asks for every PR state, not just open ones', () => {
+    // The #27 -> #29 regression: with `--state open`, a superseded CLOSED PR read
+    // as "no PR", so the loop re-picked the item and rebuilt shipped work. Once a
+    // branch has carried any PR the item must never be rebuilt.
+    const args = prListArgs('lab/anything');
+    expect(args[args.indexOf('--state') + 1]).toBe('all');
+    expect(args).not.toContain('open');
+  });
+
+  it('passes the branch through verbatim, however it is spelled', () => {
+    expect(prListArgs('lab/tools-listing-page')).toContain('lab/tools-listing-page');
   });
 });
 

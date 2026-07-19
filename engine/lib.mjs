@@ -84,13 +84,22 @@ export function branchForItem(title) {
   return `lab/${slugify(shortTitle(title))}`;
 }
 
+// The `gh` argv for "does this branch have a PR?". `--state all` is deliberate
+// and load-bearing: with `--state open` a CLOSED (superseded) PR reads as "no
+// PR", so the loop re-picks the item and rebuilds work that was already turned
+// into a PR once — exactly what happened with #27 -> #29. A branch that has ever
+// carried a PR is done being built, whatever became of that PR.
+export function prListArgs(branch) {
+  return ['pr', 'list', '--head', branch, '--state', 'all', '--json', 'number'];
+}
+
 // Picks the next backlog item the loop can actually build. Unchecked items whose
-// branch is already taken — a gated PR still waiting on Wolf's review — are
-// skipped rather than rebuilt: re-running them would hard-reset the branch under
-// the reviewer and reopen work that is already done. Without this, one unmerged
-// needs-human PR parks the whole loop on the same item forever.
+// branch is already taken — one that already carries a PR, open, closed, or
+// merged — are skipped rather than rebuilt: re-running them would hard-reset the
+// branch under a reviewer and reopen work that is already done. Without this,
+// one unmerged needs-human PR parks the whole loop on the same item forever.
 //
-// Pure: the caller decides what "taken" means (an open PR on the branch) and
+// Pure: the caller decides what "taken" means (any PR on the branch) and
 // feeds the names in, so the network lookup stays out of here. Returns
 // `{ item, branch }` for the first buildable item, or null when every unchecked
 // item is already in flight.
