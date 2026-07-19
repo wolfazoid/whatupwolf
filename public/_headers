@@ -1,0 +1,25 @@
+# Security headers for whatupwolf, served by Cloudflare Workers static assets.
+#
+# Astro copies everything in public/ verbatim into dist/, and wrangler.jsonc points
+# assets.directory at ./dist — so this file ships as-is and applies to every route.
+#
+# On the CSP: this site is Astro + React islands, and Astro emits two INLINE scripts
+# (the island loader and the hydration runtime) plus one inline <style> on every page
+# that hydrates. Neither carries a nonce, and their hashes change whenever Astro is
+# upgraded — so a static `script-src 'self'` here would break hydration at runtime in
+# a way CI cannot catch. The policy below is therefore shipped as Report-Only: it is
+# the policy we intend to enforce, running in observation mode first so violations
+# show up in the browser console before they can break anything.
+#
+# To enforce later: watch the console on / and /lab (the React island route) across a
+# few deploys, confirm the only violations are ones you meant to allow, then rename
+# the header to `Content-Security-Policy`. Dropping 'unsafe-inline' from script-src
+# needs Astro to emit nonces or a build step that hashes the inline scripts into this
+# file — do not remove it by hand.
+
+/*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
