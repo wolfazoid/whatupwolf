@@ -1,17 +1,26 @@
 // Pure filtering logic for the Lab feed, kept out of the React island so it can
 // be unit-tested without a DOM. LabFilter.tsx is the thin presentational shell.
 
+import { resolveLevelText, type LevelText } from './tech-level';
+
+/** The authored-down readings of a field; absent when nobody has written them. */
+export type LevelVariants = Omit<LevelText, 'technical'>;
+
 // A serializable view of a lab entry — the Astro page passes plain objects
 // (no Date instances) so this can be sent across the SSR→client boundary.
+// `title`/`summary` are always the technical source; the *Levels fields carry
+// the lighter readings, and the island renders whichever the visitor picked.
 export interface LabItem {
   id: string;
   title: string;
+  titleLevels?: LevelVariants;
   ts: string;
   type: string;
   status: string;
   tags: string[];
   live: boolean;
   summary: string;
+  summaryLevels?: LevelVariants;
 }
 
 export interface LabQuery {
@@ -48,11 +57,19 @@ export function typeFacets(items: LabItem[]): Facet[] {
 }
 
 /** Whitespace-separated terms, all of which must appear somewhere in the
- *  entry's title or summary (case-insensitive substring). */
+ *  entry's title or summary (case-insensitive substring).
+ *
+ *  Every reading is searched, not just the one on screen: a visitor at the
+ *  plain level types the words they can see, while someone who remembers the
+ *  technical wording should still find the entry after it's been translated. */
 function matchesSearch(item: LabItem, search: string): boolean {
   const terms = search.toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return true;
-  const haystack = `${item.title} ${item.summary}`.toLowerCase();
+  const readings = [
+    ...Object.values(resolveLevelText({ technical: item.title, ...item.titleLevels })),
+    ...Object.values(resolveLevelText({ technical: item.summary, ...item.summaryLevels })),
+  ];
+  const haystack = readings.join(' ').toLowerCase();
   return terms.every((t) => haystack.includes(t));
 }
 

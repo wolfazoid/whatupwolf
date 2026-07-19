@@ -8,9 +8,35 @@ import {
   typeFacets,
   type LabItem,
   type LabQuery,
+  type LevelVariants,
 } from '../lib/lab-filter';
+import { variantAttr, variantParts } from '../lib/tech-level';
 
 export type { LabItem };
+
+/**
+ * The island is deliberately level-agnostic: it renders every reading and lets
+ * the stylesheet reveal the chosen one. That keeps the visitor's level out of
+ * React state entirely — no hydration mismatch, no re-render on switch, and
+ * the mechanism stays identical to the static Astro pages.
+ */
+function Levelled({
+  technical,
+  levels,
+}: {
+  technical: string;
+  levels?: LevelVariants;
+}) {
+  return (
+    <>
+      {variantParts({ technical, ...levels }).map((part) => (
+        <span key={part.levels.join(' ')} data-variant={variantAttr(part.levels)}>
+          {part.text}
+        </span>
+      ))}
+    </>
+  );
+}
 
 // Shared field chrome: paper-theme border, mono type, accent focus ring.
 const FIELD =
@@ -65,7 +91,10 @@ export default function LabFilter({ items }: { items: LabItem[] }) {
           </select>
         </div>
 
-        <div className="flex flex-col gap-1">
+        {/* Tags are the engine's own vocabulary (#yaml-safety, #gh-cli). At the
+            plain level a 30-long dropdown of them is noise, not a filter — that
+            reader gets search and type instead. */}
+        <div className="flex flex-col gap-1" data-variant="technical aware">
           <label className="chrome" htmlFor={`${ids}-tag`}>
             tag
           </label>
@@ -118,13 +147,13 @@ export default function LabFilter({ items }: { items: LabItem[] }) {
               <span>status: {e.status}</span>
             </div>
             <h3 className="mt-1 font-semibold tracking-tight transition-colors group-hover:text-[var(--color-accent)]">
-              {e.title}
+              <Levelled technical={e.title} levels={e.titleLevels} />
             </h3>
             <p className="mt-1 text-sm leading-relaxed text-[var(--color-muted)]">
-              {e.summary}
+              <Levelled technical={e.summary} levels={e.summaryLevels} />
             </p>
             {e.tags.length > 0 && (
-              <div className="chrome mt-2 flex flex-wrap gap-2">
+              <div className="chrome mt-2 flex flex-wrap gap-2" data-variant="technical aware">
                 {e.tags.map((t) => (
                   <span key={t}>#{t}</span>
                 ))}

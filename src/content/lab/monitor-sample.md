@@ -1,11 +1,16 @@
 ---
 title: Site health monitor — sample run
+titleLevels:
+  plain: "Website health check — example"
 date: 2026-06-26T08:00
 type: monitor
 status: flagged
 tags: [monitoring, performance]
 live: false
 summary: Sanitized sample of an automated monitor run. Public-safe — no client names, URLs, or secrets.
+summaryLevels:
+  aware: "A sanitised example of an automated monitor run — no client names, URLs or secrets."
+  plain: "An example of what an automatic website check looks like when it is published here, with every identifying detail removed."
 ---
 
 ## What ran

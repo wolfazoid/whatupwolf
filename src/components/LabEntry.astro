@@ -1,16 +1,35 @@
 ---
+import LevelText from './LevelText.astro';
+import type { LevelText as LevelVariants } from '../lib/tech-level';
+
+type Variants = Omit<LevelVariants, 'technical'>;
+
 interface Props {
   title: string;
+  titleLevels?: Variants;
   date: Date;
   type: string;
   status: string;
   tags: string[];
   live: boolean;
   summary: string;
+  summaryLevels?: Variants;
   href?: string;
   tool?: string;
 }
-const { title, date, type, status, tags, live, summary, href, tool } = Astro.props;
+const {
+  title,
+  titleLevels,
+  date,
+  type,
+  status,
+  tags,
+  live,
+  summary,
+  summaryLevels,
+  href,
+  tool,
+} = Astro.props;
 const ts = date.toISOString().slice(0, 16).replace('T', ' ');
 const Tag = href ? 'a' : 'div';
 ---
@@ -21,10 +40,14 @@ const Tag = href ? 'a' : 'div';
     <span class="text-[var(--color-accent)]">[{type}]</span>
     <span>status: {status}</span>
   </div>
-  <h3 class="mt-1 font-semibold tracking-tight group-hover:text-[var(--color-accent)] transition-colors">{title}</h3>
-  <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">{summary}</p>
+  <h3 class="mt-1 font-semibold tracking-tight group-hover:text-[var(--color-accent)] transition-colors">
+    <LevelText technical={title} {...titleLevels} />
+  </h3>
+  <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">
+    <LevelText technical={summary} {...summaryLevels} />
+  </p>
   {tags.length > 0 && (
-    <div class="chrome mt-2 flex flex-wrap gap-2">
+    <div class="chrome mt-2 flex flex-wrap gap-2" data-variant="technical aware">
       {tags.map((t) => <span>#{t}</span>)}
     </div>
   )}

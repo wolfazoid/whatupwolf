@@ -1,5 +1,8 @@
 ---
 title: "Research and build a first prototype of a better recipe/cooking tool: a self-contained single-file reader at public/tools/cooking.html targeting the known pain points of cooking from a screen."
+titleLevels:
+  aware: "Cook Mode — a single-file recipe reader"
+  plain: "Cook Mode — a recipe page built for actually cooking"
 date: 2026-07-18T22:40
 type: experiment
 status: done
@@ -8,6 +11,9 @@ live: true
 draft: false
 tool: /tools/cooking.html
 summary: "Built Cook Mode — a dependency-free single-file recipe reader with one-step-at-a-time navigation, timers parsed out of the step text, ingredient scaling, unit conversion, and a screen wake lock."
+summaryLevels:
+  aware: "Built Cook Mode: a single-file recipe reader with one step at a time, timers pulled out of the step text, ingredient scaling, unit conversion and a screen wake lock."
+  plain: "Built Cook Mode: a recipe page designed for cooking from, not for reading. It shows one step at a time, starts timers for you, scales the ingredients up or down, converts between cups and grams, and stops the screen going dark when your hands are covered in flour."
 ---
 
 Researched what shipped cooking modes actually do and where cooking-from-a-screen breaks down, then built a v1 at [`/tools/cooking.html`](/tools/cooking.html) — one HTML file, no build step, no dependencies, no network calls.

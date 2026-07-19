@@ -1,5 +1,6 @@
 ---
 import Base from '../../layouts/Base.astro';
+import LevelText from '../../components/LevelText.astro';
 import { getCollection } from 'astro:content';
 
 const entries = (await getCollection('tools'))
@@ -7,14 +8,21 @@ const entries = (await getCollection('tools'))
 ---
 <Base title="Tools — whatupwolf">
   <h1 class="text-2xl font-semibold tracking-tight">Tools</h1>
-  <p class="mt-2 text-[var(--color-muted)]">Small self-contained things built in the lab. Free to use, nothing to install.</p>
+  <p class="mt-2 text-[var(--color-muted)]">
+    <LevelText
+      technical="Small self-contained things built in the lab. Free to use, nothing to install."
+      plain="Small free tools I've built. Nothing to sign up for, nothing to install — just open one and use it."
+    />
+  </p>
   <div class="mt-6">
     {entries.length === 0 && <p class="chrome py-4">nothing shipped yet.</p>}
     {entries.map((e) => (
       <div class="border-b border-[var(--color-line)] py-4">
         <div class="chrome">{e.data.date.toISOString().slice(0, 10)}</div>
         <h3 class="mt-1 font-semibold tracking-tight">{e.data.title}</h3>
-        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">{e.data.description}</p>
+        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">
+          <LevelText technical={e.data.description} {...e.data.descriptionLevels} />
+        </p>
         {e.data.tags.length > 0 && (
           <div class="chrome mt-2 flex flex-wrap gap-2">{e.data.tags.map((t) => <span>#{t}</span>)}</div>
         )}

@@ -37,6 +37,62 @@ a {
   letter-spacing: -0.01em;
 }
 
+/* ── Tech level ───────────────────────────────────────────────────────────
+   Every reading of a piece of copy ships in the HTML at build time; only one
+   is shown. The switch sets `data-level` on <html> and the cascade does the
+   rest — no per-element JS, and the Lab's React island stays level-agnostic.
+
+   `~=` matching lets one element carry several levels, so copy that reads the
+   same at two depths ships once. With no JS at all `data-level` is never set
+   and the third rule serves the technical source — the site's status quo. */
+:root[data-level='aware'] [data-variant]:not([data-variant~='aware']),
+:root[data-level='plain'] [data-variant]:not([data-variant~='plain']),
+:root:not([data-level='aware']):not([data-level='plain'])
+  [data-variant]:not([data-variant~='technical']) {
+  display: none;
+}
+
+/* The switch is inert without JS, so the head script reveals it. */
+.level-switch {
+  display: none;
+}
+:root[data-level-switch='on'] .level-switch {
+  display: inline-flex;
+}
+
+.level-opt {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: -0.01em;
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--color-line);
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+.level-opt:first-child {
+  border-left: 0;
+}
+.level-opt:hover {
+  color: var(--color-ink);
+}
+.level-opt:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+/* Selected state is driven by the same attribute the content is, so it is
+   already correct on first paint — no flash of the wrong option. */
+:root[data-level='technical'] .level-opt[data-level-opt='technical'],
+:root[data-level='aware'] .level-opt[data-level-opt='aware'],
+:root[data-level='plain'] .level-opt[data-level-opt='plain'] {
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+  font-weight: 600;
+}
+
 /* Live pulse-dot for fresh machine output */
 .live-dot {
   display: inline-block;

@@ -9,9 +9,11 @@ const items = [
   { href: '/now', label: 'Now' },
   { href: '/rss.xml', label: 'RSS' },
 ];
+import LevelSwitch from './LevelSwitch.astro';
+
 const path = Astro.url.pathname.replace(/\/$/, '') || '/';
 ---
-<nav class="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-[var(--color-line)] pb-4">
+<nav class="flex flex-wrap items-center gap-x-5 gap-y-2 pb-2">
   <a href="/" class="chrome !text-[var(--color-ink)] font-semibold tracking-tight">
     <span class="text-[var(--color-accent)]">&gt;</span> whatupwolf
   </a>
@@ -26,3 +28,6 @@ const path = Astro.url.pathname.replace(/\/$/, '') || '/';
     >{it.label}</a>
   ))}
 </nav>
+<div class="flex justify-end border-b border-[var(--color-line)] pb-3">
+  <LevelSwitch />
+</div>

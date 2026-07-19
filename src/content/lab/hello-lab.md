@@ -6,6 +6,9 @@ status: done
 tags: [meta, astro]
 live: true
 summary: First entry. The site scaffold is up — Astro + Tailwind, paper theme, and this running log.
+summaryLevels:
+  aware: "First entry. The site is up — Astro and Tailwind, the paper theme, and this running log."
+  plain: "The first entry. The site exists, it looks the way I wanted, and this running log is now open."
 ---
 
 This is the first lab entry. From here, the always-on machine will publish here on its
