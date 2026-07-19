@@ -56,7 +56,7 @@ bullet (no checkbox) so the runner will NOT pick it — promote it to `- [ ]` wh
 ## Tier 8 — Site polish (Lab UX, nav, dedup)
 
 - [x] De-duplicate the Cook Mode Lab entries: PR #25 left TWO entries for the same tool — the dedicated writeup `src/content/lab/2026-07-18-cook-mode-a-self-contained-recipe-reader-for-messy-hands.md` and the generic build-log `src/content/lab/2026-07-18-research-and-build-a-first-prototype-of-a-better-recipe-cook.md`. Keep the dedicated "Cook Mode" writeup, delete the generic build-log one, so Cook Mode appears ONCE in the Lab feed. Verify `npm run build` still succeeds. (src/content/lab — auto-zone.)
-- [ ] Add the Tools / Cook Mode link to the site nav in src/components/Nav.astro so the tool at `/tools/cooking.html` is reachable from navigation. Match the existing nav style (paper theme, mono chrome). Verify `npm run build`. (Touches src/components — GATED, needs-human.)
+- [x] Add the Tools / Cook Mode link to the site nav in src/components/Nav.astro so the tool at `/tools/cooking.html` is reachable from navigation. Match the existing nav style (paper theme, mono chrome). Verify `npm run build`. (Touches src/components — GATED, needs-human.)
 - [x] Revamp the Lab page filter UX (src/components/LabFilter.tsx + its use in src/pages/lab/index.astro): the per-tag buttons have gotten out of hand as entries pile up. Replace them with a simpler selector — a dropdown/select to filter by tag (and/or type) — AND add a text search box that filters entries by title + summary (client-side, keep the existing React-island approach, fast, accessible, on-brand). Verify `npm run build`. (Touches src/components / src/pages — GATED, needs-human.)
 
 ## Tier 9 — Tools home + Lab→tool links (supersedes closed PR #27)
