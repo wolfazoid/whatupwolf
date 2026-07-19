@@ -1,56 +1,109 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
+import {
+  EMPTY_QUERY,
+  describeQuery,
+  filterLabItems,
+  isFiltered,
+  tagFacets,
+  typeFacets,
+  type LabItem,
+  type LabQuery,
+} from '../lib/lab-filter';
 
-// A serializable view of a lab entry — the Astro page passes plain objects
-// (no Date instances) so this island can be sent across the SSR→client boundary.
-export interface LabItem {
-  id: string;
-  title: string;
-  ts: string;
-  type: string;
-  status: string;
-  tags: string[];
-  live: boolean;
-  summary: string;
-}
+export type { LabItem };
 
-// Client island: filters the (statically-built) lab feed by tag, in the browser.
+// Shared field chrome: paper-theme border, mono type, accent focus ring.
+const FIELD =
+  'chrome rounded border border-[var(--color-line)] bg-[var(--color-bg)] px-2 py-1 ' +
+  'text-[var(--color-ink)] focus:outline-none focus:ring-2 focus:ring-[var(--color-accent)]';
+
+// Client island: filters the (statically-built) lab feed in the browser.
 // The whole page is still pre-rendered — only this component hydrates.
 export default function LabFilter({ items }: { items: LabItem[] }) {
-  const [active, setActive] = useState<string | null>(null);
+  const [query, setQuery] = useState<LabQuery>(EMPTY_QUERY);
+  const ids = useId();
 
-  const allTags = useMemo(
-    () => [...new Set(items.flatMap((i) => i.tags))].sort(),
-    [items],
-  );
+  const tags = useMemo(() => tagFacets(items), [items]);
+  const types = useMemo(() => typeFacets(items), [items]);
+  const shown = useMemo(() => filterLabItems(items, query), [items, query]);
 
-  const shown = active ? items.filter((i) => i.tags.includes(active)) : items;
-
-  const chip = (label: string, selected: boolean, onClick: () => void) => (
-    <button
-      key={label}
-      type="button"
-      onClick={onClick}
-      aria-pressed={selected}
-      className={`chrome rounded px-2 py-0.5 transition-colors ${
-        selected
-          ? 'bg-[var(--color-accent-soft)] text-[var(--color-accent)]'
-          : 'hover:text-[var(--color-ink)]'
-      }`}
-    >
-      {label === 'all' ? 'all' : `#${label}`}
-    </button>
-  );
+  const patch = (next: Partial<LabQuery>) => setQuery((q) => ({ ...q, ...next }));
 
   return (
     <div>
-      <div className="chrome mb-4 flex flex-wrap items-center gap-2">
-        <span className="text-[var(--color-muted)]">filter:</span>
-        {chip('all', active === null, () => setActive(null))}
-        {allTags.map((t) => chip(t, active === t, () => setActive(t)))}
+      <div className="mb-4 flex flex-wrap items-end gap-3 border-b border-[var(--color-line)] pb-4">
+        <div className="flex min-w-48 flex-1 flex-col gap-1">
+          <label className="chrome" htmlFor={`${ids}-search`}>
+            search
+          </label>
+          <input
+            id={`${ids}-search`}
+            type="search"
+            value={query.search}
+            onChange={(e) => patch({ search: e.target.value })}
+            placeholder="title or summary…"
+            className={`${FIELD} w-full`}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="chrome" htmlFor={`${ids}-type`}>
+            type
+          </label>
+          <select
+            id={`${ids}-type`}
+            value={query.type ?? ''}
+            onChange={(e) => patch({ type: e.target.value || null })}
+            className={FIELD}
+          >
+            <option value="">all types</option>
+            {types.map((f) => (
+              <option key={f.value} value={f.value}>
+                {f.value} ({f.count})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="chrome" htmlFor={`${ids}-tag`}>
+            tag
+          </label>
+          <select
+            id={`${ids}-tag`}
+            value={query.tag ?? ''}
+            onChange={(e) => patch({ tag: e.target.value || null })}
+            className={FIELD}
+          >
+            <option value="">all tags</option>
+            {tags.map((f) => (
+              <option key={f.value} value={f.value}>
+                #{f.value} ({f.count})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {isFiltered(query) && (
+          <button
+            type="button"
+            onClick={() => setQuery(EMPTY_QUERY)}
+            className="chrome rounded px-2 py-1 underline underline-offset-2 hover:text-[var(--color-ink)]"
+          >
+            clear
+          </button>
+        )}
       </div>
 
+      {/* Announced to screen readers as the filters change, so the result of a
+          keystroke isn't purely visual. */}
+      <p className="chrome mb-2" role="status" aria-live="polite">
+        {shown.length} / {items.length} {items.length === 1 ? 'entry' : 'entries'}
+        {isFiltered(query) && ` — ${describeQuery(query)}`}
+      </p>
+
       {shown.length === 0 ? (
-        <p className="chrome py-4">no entries match #{active}.</p>
+        <p className="chrome py-4">no entries match {describeQuery(query)}.</p>
       ) : (
         shown.map((e) => (
           <a
