@@ -12,6 +12,18 @@ const lab = defineCollection({
     live: z.boolean().default(false),
     draft: z.boolean().default(false),
     summary: z.string(),
+    tool: z.string().optional(),
+  }),
+});
+
+const tools = defineCollection({
+  loader: glob({ pattern: '**/*.md', base: './src/content/tools' }),
+  schema: z.object({
+    title: z.string(),
+    description: z.string(),
+    href: z.string(),
+    date: z.coerce.date(),
+    tags: z.array(z.string()).default([]),
   }),
 });
 
@@ -49,4 +61,4 @@ const video = defineCollection({
   }),
 });
 
-export const collections = { lab, work, writing, video };
+export const collections = { lab, tools, work, writing, video };

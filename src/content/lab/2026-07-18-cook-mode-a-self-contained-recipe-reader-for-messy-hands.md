@@ -6,6 +6,7 @@ status: done
 tags: [tools, cooking, prototype, offline]
 live: true
 draft: false
+tool: /tools/cooking.html
 summary: "Built Cook Mode — a dependency-free single-file recipe reader with one-step-at-a-time navigation, timers parsed out of the step text, ingredient scaling, unit conversion, and a screen wake lock."
 ---
 

@@ -8,8 +8,9 @@ interface Props {
   live: boolean;
   summary: string;
   href?: string;
+  tool?: string;
 }
-const { title, date, type, status, tags, live, summary, href } = Astro.props;
+const { title, date, type, status, tags, live, summary, href, tool } = Astro.props;
 const ts = date.toISOString().slice(0, 16).replace('T', ' ');
 const Tag = href ? 'a' : 'div';
 ---
@@ -26,5 +27,12 @@ const Tag = href ? 'a' : 'div';
     <div class="chrome mt-2 flex flex-wrap gap-2">
       {tags.map((t) => <span>#{t}</span>)}
     </div>
+  )}
+  {tool && (
+    href
+      /* The whole card is already an <a>, so signal the tool with a marker
+         rather than nesting a second anchor — the entry page carries the link. */
+      ? <span class="chrome mt-2 inline-block !text-[var(--color-accent)] font-semibold">try it →</span>
+      : <a href={tool} class="chrome mt-2 inline-block !text-[var(--color-accent)] font-semibold hover:underline underline-offset-4">Try it →</a>
   )}
 </Tag>
