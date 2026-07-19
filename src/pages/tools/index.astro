@@ -1,0 +1,25 @@
+---
+import Base from '../../layouts/Base.astro';
+import { getCollection } from 'astro:content';
+
+const entries = (await getCollection('tools'))
+  .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf());
+---
+<Base title="Tools — whatupwolf">
+  <h1 class="text-2xl font-semibold tracking-tight">Tools</h1>
+  <p class="mt-2 text-[var(--color-muted)]">Small self-contained things built in the lab. Free to use, nothing to install.</p>
+  <div class="mt-6">
+    {entries.length === 0 && <p class="chrome py-4">nothing shipped yet.</p>}
+    {entries.map((e) => (
+      <div class="border-b border-[var(--color-line)] py-4">
+        <div class="chrome">{e.data.date.toISOString().slice(0, 10)}</div>
+        <h3 class="mt-1 font-semibold tracking-tight">{e.data.title}</h3>
+        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">{e.data.description}</p>
+        {e.data.tags.length > 0 && (
+          <div class="chrome mt-2 flex flex-wrap gap-2">{e.data.tags.map((t) => <span>#{t}</span>)}</div>
+        )}
+        <a href={e.data.href} class="chrome mt-3 inline-block !text-[var(--color-accent)] hover:underline underline-offset-4">Open →</a>
+      </div>
+    ))}
+  </div>
+</Base>

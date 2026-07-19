@@ -9,7 +9,7 @@ export async function getStaticPaths() {
 
 const { entry } = Astro.props;
 const { Content } = await render(entry);
-const { title, date, type, status, tags, live } = entry.data;
+const { title, date, type, status, tags, live, tool } = entry.data;
 const ts = date.toISOString().slice(0, 16).replace('T', ' ');
 ---
 <Base title={`${title} — Lab`}>
@@ -22,6 +22,12 @@ const ts = date.toISOString().slice(0, 16).replace('T', ' ');
   <h1 class="mt-2 text-2xl font-semibold tracking-tight">{title}</h1>
   {tags.length > 0 && (
     <div class="chrome mt-2 flex flex-wrap gap-2">{tags.map((t) => <span>#{t}</span>)}</div>
+  )}
+  {tool && (
+    <a
+      href={tool}
+      class="mt-4 inline-block border border-[var(--color-accent)] px-4 py-2 font-semibold tracking-tight text-[var(--color-accent)] transition-colors hover:bg-[var(--color-accent)] hover:text-[var(--color-bg)]"
+    >Try it →</a>
   )}
   <article class="prose mt-6 leading-relaxed [&_h2]:mt-6 [&_h2]:font-semibold [&_p]:mt-3 [&_code]:font-[var(--font-mono)]">
     <Content />
