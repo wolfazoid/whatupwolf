@@ -65,7 +65,7 @@ bullet (no checkbox) so the runner will NOT pick it — promote it to `- [ ]` wh
 
 ## Tier 10 — Loop hardening (closed/merged PRs too)
 
-- [ ] Extend loop-skip so it skips a backlog item whose branch has ANY existing PR — open, closed, OR merged — not just open. Today `branchHasOpenPr` in engine/run-cycle.mjs uses `--state open`, so a CLOSED (superseded) gated PR leaves its item unchecked with no open PR and the loop re-picks + rebuilds it (this happened with PR #27→#29). Change the check to `gh pr list --head <branch> --state all` (rename to `branchHasPr` or similar) so once an item has been built into a PR it is never rebuilt. Update `pickBuildableItem`'s usage and the unit tests accordingly. Preserve `--dry-run`. (engine/ — auto-zone.)
+- [x] Extend loop-skip so it skips a backlog item whose branch has ANY existing PR — open, closed, OR merged — not just open. Today `branchHasOpenPr` in engine/run-cycle.mjs uses `--state open`, so a CLOSED (superseded) gated PR leaves its item unchecked with no open PR and the loop re-picks + rebuilds it (this happened with PR #27→#29). Change the check to `gh pr list --head <branch> --state all` (rename to `branchHasPr` or similar) so once an item has been built into a PR it is never rebuilt. Update `pickBuildableItem`'s usage and the unit tests accordingly. Preserve `--dry-run`. (engine/ — auto-zone.)
 
 ## Later (not queued — promote to `- [ ]` when ready)
 
