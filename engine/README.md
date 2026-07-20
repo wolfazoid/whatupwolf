@@ -123,11 +123,20 @@ renders as a `type: briefing` entry, which `draftForType()` gates behind `draft:
 Wolf's review of the shortlist is the gate, so nothing publishes unreviewed. Re-run it
 whenever the landscape has moved enough to be worth re-surveying.
 
+**Interaction Lab** is the recurring, lighter counterpart to that sprint: a **monthly**
+digest of what's new in how people interact with LLMs, covering the same nine areas but
+scoped to the past month and skipping the shortlist. It runs the same source-sweep
+discipline and the same real-fetched-link hard rule, ~5–8 items, factual voice. It renders
+as a `type: digest` entry, so unlike the sprint it publishes direct (`draft: false`) —
+which is why the prompt holds it to reporting, not to a point of view. The sprint maps the
+space; this keeps the map fresh.
+
 ## Cron
 
-**Agent Weekly runs Sundays 07:00** via the wrapper `engine/run-weekly.sh`, and **Site
-Health runs Wednesdays 07:00** via `engine/run-health.sh`. These are the canonical
-crontab lines (source of truth — `crontab -l` should match them):
+**Agent Weekly runs Sundays 07:00** via the wrapper `engine/run-weekly.sh`, **Site Health
+runs Wednesdays 07:00** via `engine/run-health.sh`, and **Interaction Lab runs monthly on
+the 1st at 07:00** via `engine/run-interaction-lab.sh`. These are the canonical crontab
+lines (source of truth — `crontab -l` should match them):
 
 ```cron
 # Agent Weekly — Sundays 07:00 (halt: touch engine/PAUSED)
@@ -135,15 +144,22 @@ crontab lines (source of truth — `crontab -l` should match them):
 
 # Site Health — Wednesdays 07:00 (halt: touch engine/PAUSED)
 0 7 * * 3 /home/wolf/whatupwolf/engine/run-health.sh
+
+# Interaction Lab — 1st of the month, 07:00 (halt: touch engine/PAUSED)
+0 7 1 * * /home/wolf/whatupwolf/engine/run-interaction-lab.sh
 ```
 
-Both wrappers must be executable (`chmod +x engine/run-*.sh`) — cron won't run them
+Wolf installs these by hand — the engine never edits a crontab. Adding a wrapper here is
+only half the job; the line above has to be pasted into `crontab -e` before anything is
+actually scheduled.
+
+All wrappers must be executable (`chmod +x engine/run-*.sh`) — cron won't run them
 otherwise, and it fails quietly.
 
 **Always point cron at the wrapper, never at a `node` path.** Cron runs with a bare
 environment and can't find nvm's `node`/`claude`; a pinned versioned path
-(`…/v24.15.0/bin`) rots *silently* the moment nvm upgrades node — on a Sunday or a
-Wednesday nobody is watching. Each wrapper sources nvm to use whatever node is current, so
+(`…/v24.15.0/bin`) rots *silently* the moment nvm upgrades node — on a Sunday, a
+Wednesday, or the 1st of a month nobody is watching. Each wrapper sources nvm to use whatever node is current, so
 there is nothing to remember or update after a node upgrade. (No cron is installed for the
 self-building
 `run-cycle.mjs` loop yet — its backlog runs on demand; give it its own wrapper if you ever
