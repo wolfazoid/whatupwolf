@@ -15,5 +15,6 @@ npm-debug.log*
 engine/.cycle-report.json
 engine/.experiment-report.json
 engine/cron.log
+engine/cycle.log
 engine/experiment.log
 engine/PAUSED
