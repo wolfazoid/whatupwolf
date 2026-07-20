@@ -318,6 +318,8 @@ describe('draftForType', () => {
   });
   it('gates briefing- and opinion-style entries behind draft:true', () => {
     // These carry a point of view, so a human reviews before they go public.
+    // The Interaction Landscape sprint renders as `briefing` precisely for this:
+    // Wolf's review of its ranked prototype shortlist IS the publishing gate.
     expect(draftForType('briefing')).toBe(true);
     expect(draftForType('note')).toBe(true);
   });
