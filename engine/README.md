@@ -97,10 +97,31 @@ may already have an open PR, and rewriting it would change what a reviewer is mi
 through reading. `--dry-run` shells out to nothing, so it always previews the plain dated
 name.
 
+**Titles.** An experiment titles as `<titlePrefix> — <cadence> <date>` when its registry
+entry sets a `cadence` (`Agent Weekly — week of 2026-07-20`), and as
+`<titlePrefix> — <date>` when it doesn't. One-shots omit `cadence`, so they don't claim a
+schedule they don't have.
+
 **Agent Weekly** is the first experiment: a weekly, factual digest of the past 7 days in
 AI agents (vendor releases, agent frameworks, trending repos, arXiv papers, HN threads),
 every item carrying a real fetched link. It renders as a `type: digest` entry that
 publishes direct (`draft: false`).
+
+**Interaction Landscape** is a **one-shot** sprint — run it by hand, there is no cron line
+and it is not on the schedule below:
+
+```bash
+node engine/run-experiment.mjs interaction-landscape --dry-run   # preview
+node engine/run-experiment.mjs interaction-landscape             # real run
+```
+
+It surveys the landscape of novel ways of interacting with LLMs (voice and ambient agents,
+generative and streaming UI, memory/context UX, multimodal, computer use, tool-call and
+clarification UX, reasoning surfaces, elicitation, agent handoff) and ends in a ranked
+`## Prototype Shortlist`, each candidate tagged client-only / BYO-key / needs-server. It
+renders as a `type: briefing` entry, which `draftForType()` gates behind `draft: true` —
+Wolf's review of the shortlist is the gate, so nothing publishes unreviewed. Re-run it
+whenever the landscape has moved enough to be worth re-surveying.
 
 ## Cron
 

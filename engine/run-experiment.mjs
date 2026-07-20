@@ -42,15 +42,31 @@ const NAME = process.argv.slice(2).find((a) => !a.startsWith('--'));
 // monitor also names the `target` its probe audits. Deliberately a small literal,
 // not a framework — we extract a general runner only once 2–3 experiments exist
 // to shape it (YAGNI).
+//
+// `cadence` is the optional word the run date is introduced by in the title
+// ("Agent Weekly — week of 2026-07-20"). It exists because the title template
+// used to hardcode "week of", which reads wrong for anything that isn't weekly:
+// a one-shot sprint omits it and titles as "<prefix> — <date>".
 const EXPERIMENTS = {
-  'agent-weekly': { kind: 'digest', type: 'digest', titlePrefix: 'Agent Weekly' },
+  'agent-weekly': { kind: 'digest', type: 'digest', titlePrefix: 'Agent Weekly', cadence: 'week of' },
   'site-health': {
     kind: 'monitor',
     type: 'monitor',
     titlePrefix: 'Site Health',
+    cadence: 'week of',
     target: 'https://whatupwolf.com',
   },
+  // One-shot: run by hand, not on cron. Renders as `type: briefing`, which
+  // draftForType() gates behind draft:true — Wolf's review of the ranked
+  // prototype shortlist IS the publishing gate.
+  'interaction-landscape': { kind: 'digest', type: 'briefing', titlePrefix: 'Interaction Landscape' },
 };
+
+// "Agent Weekly — week of 2026-07-20" for a cadenced experiment;
+// "Interaction Landscape — 2026-07-20" for a one-shot.
+function experimentTitle(cfg, day) {
+  return `${cfg.titlePrefix} — ${cfg.cadence ? `${cfg.cadence} ${day}` : day}`;
+}
 
 function sh(cmd, args) {
   if (DRY) { console.log(`[dry-run] ${cmd} ${args.join(' ')}`); return ''; }
@@ -97,13 +113,13 @@ function runClaude(promptPath, extra = '') {
 // A synthetic private report for --dry-run: exercises the real sanitizer against a
 // registered secret it does not leak, so the preview proves the rail is wired up
 // rather than bypassing it.
-function dryRunPrivateReport(day) {
+function dryRunPrivateReport(title) {
   return {
     status: 'done',
     meta: { urls: ['https://example.invalid'], secrets: ['/a-route'] },
     findings: '(dry-run) The private half — never published, archived to engine/reports/.',
     public: {
-      title: `Site Health — week of ${day}`,
+      title,
       summary: '(dry-run) An automated sweep of a monitored property completed with no issues flagged.',
       body: '## What ran\n\n(dry-run) An automated weekly sweep: availability, response time, SSL, links, security headers.\n\n## Result\n\n(dry-run) All key routes healthy, no broken links, SSL valid well beyond the threshold.\n\nFull detail lives in the private report.',
       tags: ['monitoring'],
@@ -169,7 +185,7 @@ async function main() {
   // 4–6. Produce the report and render the entry. The two kinds diverge here and
   // rejoin at publish: each sets `entry` (the Lab markdown), `status`, and
   // `summary` (the PR body), plus whatever it needs to archive.
-  const title = `${cfg.titlePrefix} — week of ${day}`;
+  const title = experimentTitle(cfg, day);
   const entryPath = join(REPO_DIR, 'src', 'content', 'lab', `${day}-${NAME}${suffix}.md`);
   let entry;
   let status;
@@ -184,7 +200,7 @@ async function main() {
     let report;
     if (DRY) {
       console.log(`[dry-run] would probe ${cfg.target} and invoke: claude -p <prompt + Findings>`);
-      report = dryRunPrivateReport(day);
+      report = dryRunPrivateReport(title);
     } else {
       const { probe } = await import(`./probes/${NAME}.mjs`);
       const findings = await probe(cfg.target);
@@ -213,8 +229,8 @@ async function main() {
       console.log('[dry-run] would invoke: claude -p <prompt> --dangerously-skip-permissions');
       report = {
         status: 'done',
-        summary: '(dry-run) Agent Weekly — synthetic digest preview.',
-        tags: ['agents', 'digest'],
+        summary: `(dry-run) ${cfg.titlePrefix} — synthetic ${cfg.type} preview.`,
+        tags: [cfg.type],
         body: '(dry-run) One-line intro.\n\n**Example item** — what it is · why it matters · https://example.com',
       };
     } else {
@@ -225,8 +241,9 @@ async function main() {
       }
     }
 
-    // 6d. Render the Lab entry. Digests are factual machine-log posts, so
-    // draftForType returns false and they publish direct (no human review gate).
+    // 6d. Render the Lab entry. draftForType decides the gate from the entry
+    // `type`: a `digest` is a factual machine-log post and publishes direct,
+    // while a `briefing` carries a point of view and lands as a draft for Wolf.
     status = report.status;
     summary = report.summary;
     entry = renderLabEntry({
