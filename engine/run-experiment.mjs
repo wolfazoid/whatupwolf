@@ -60,6 +60,10 @@ const EXPERIMENTS = {
   // draftForType() gates behind draft:true — Wolf's review of the ranked
   // prototype shortlist IS the publishing gate.
   'interaction-landscape': { kind: 'digest', type: 'briefing', titlePrefix: 'Interaction Landscape' },
+  // The recurring counterpart to the one-shot sprint above: a lighter monthly
+  // sweep that keeps the interaction landscape fresh once the survey has run.
+  // Renders as `type: digest` — a factual machine-log post, so it publishes direct.
+  'interaction-lab': { kind: 'digest', type: 'digest', titlePrefix: 'Interaction Lab' },
 };
 
 // "Agent Weekly — week of 2026-07-20" for a cadenced experiment;
