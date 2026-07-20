@@ -133,21 +133,29 @@ space; this keeps the map fresh.
 
 ## Cron
 
-**Agent Weekly runs Sundays 07:00** via the wrapper `engine/run-weekly.sh`, **Site Health
-runs Wednesdays 07:00** via `engine/run-health.sh`, and **Interaction Lab runs monthly on
-the 1st at 07:00** via `engine/run-interaction-lab.sh`. These are the canonical crontab
+Every experiment runs through **one parametric wrapper**, `engine/run-experiment.sh <name>`.
+**Agent Weekly runs Sundays 07:00**, **Site Health runs Wednesdays 07:00**, and
+**Interaction Lab runs monthly on the 1st at 07:00**. These are the canonical crontab
 lines (source of truth — `crontab -l` should match them):
 
 ```cron
 # Agent Weekly — Sundays 07:00 (halt: touch engine/PAUSED)
-0 7 * * 0 /home/wolf/whatupwolf/engine/run-weekly.sh
+0 7 * * 0 /home/wolf/whatupwolf/engine/run-experiment.sh agent-weekly
 
 # Site Health — Wednesdays 07:00 (halt: touch engine/PAUSED)
-0 7 * * 3 /home/wolf/whatupwolf/engine/run-health.sh
+0 7 * * 3 /home/wolf/whatupwolf/engine/run-experiment.sh site-health
 
 # Interaction Lab — 1st of the month, 07:00 (halt: touch engine/PAUSED)
-0 7 1 * * /home/wolf/whatupwolf/engine/run-interaction-lab.sh
+0 7 1 * * /home/wolf/whatupwolf/engine/run-experiment.sh interaction-lab
 ```
+
+Adding a cron'd experiment is now a crontab line and nothing else — no new wrapper file.
+
+**The named wrappers are backward-compat shims.** `run-weekly.sh`, `run-health.sh` and
+`run-interaction-lab.sh` still exist and still work; each is a one-line
+`exec .../run-experiment.sh <name>`. That's what lets the already-installed crontab keep
+running with zero migration and no silent breakage. Once Wolf re-points `crontab -e` at the
+canonical lines above the shims can be deleted — but nothing requires it.
 
 Wolf installs these by hand — the engine never edits a crontab. Adding a wrapper here is
 only half the job; the line above has to be pasted into `crontab -e` before anything is
@@ -159,7 +167,7 @@ otherwise, and it fails quietly.
 **Always point cron at the wrapper, never at a `node` path.** Cron runs with a bare
 environment and can't find nvm's `node`/`claude`; a pinned versioned path
 (`…/v24.15.0/bin`) rots *silently* the moment nvm upgrades node — on a Sunday, a
-Wednesday, or the 1st of a month nobody is watching. Each wrapper sources nvm to use whatever node is current, so
+Wednesday, or the 1st of a month nobody is watching. The wrapper sources nvm to use whatever node is current, so
 there is nothing to remember or update after a node upgrade.
 
 **The self-building loop runs hourly** via `engine/run-cycle.sh` — its wrapper adds one
