@@ -160,7 +160,19 @@ otherwise, and it fails quietly.
 environment and can't find nvm's `node`/`claude`; a pinned versioned path
 (`…/v24.15.0/bin`) rots *silently* the moment nvm upgrades node — on a Sunday, a
 Wednesday, or the 1st of a month nobody is watching. Each wrapper sources nvm to use whatever node is current, so
-there is nothing to remember or update after a node upgrade. (No cron is installed for the
-self-building
-`run-cycle.mjs` loop yet — its backlog runs on demand; give it its own wrapper if you ever
-schedule it.)
+there is nothing to remember or update after a node upgrade.
+
+**The self-building loop runs hourly** via `engine/run-cycle.sh` — its wrapper adds one
+thing the experiment wrappers don't need: `flock -n`, a non-blocking exclusive lock, so a
+cycle that overruns the hour is never joined by a second concurrent run (which would corrupt
+the shared git branch state). Each tick that finds no buildable backlog is a cheap
+git-pull-and-exit no-op that makes no `claude` call, so the cron is safe to leave installed —
+it only does work when the backlog has an unbuilt `- [ ]` item. Canonical crontab line:
+
+```cron
+# Self-building loop — hourly (halt: touch engine/PAUSED)
+0 * * * * /home/wolf/whatupwolf/engine/run-cycle.sh
+```
+
+Halt the loop with `npm run pause` (or `touch engine/PAUSED`); resume with `npm run resume`.
+Remove the schedule entirely with `crontab -e` (delete the line).
