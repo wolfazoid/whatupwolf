@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Reasoning-trace A/B — can you tell a sound explanation from a confident wrong one?</title>
+<meta name="description" content="A self-contained study: an AI gives a confident answer with a reasoning trace. Some traces are sound; some reach the same answer through a subtle flaw or a fabricated step. Judge which you trust — and find out if you were fooled. Offline, no accounts, no model call.">
+<style>
+  :root {
+    --bg: #f3efe4;
+    --paper: #fbf8f0;
+    --paper-2: #f0ebdc;
+    --line: #ded6c2;
+    --line-2: #cabfa4;
+    --ink: #201d16;
+    --ink-dim: #6f695a;
+    --ink-faint: #98917f;
+    --accent: #2f6f5e;      /* sound / trustworthy green */
+    --accent-ink: #fbf8f0;
+    --flag: #a4472b;        /* flaw / flagged rust */
+    --flag-soft: #f3e2d9;
+    --good-soft: #dfeae2;
+    --radius: 12px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14130f;
+      --paper: #1c1a15;
+      --paper-2: #242118;
+      --line: #38342a;
+      --line-2: #4a4536;
+      --ink: #f0ece0;
+      --ink-dim: #a49d8a;
+      --ink-faint: #766f5d;
+      --accent: #6fc0a5;
+      --accent-ink: #10130f;
+      --flag: #e08a6a;
+      --flag-soft: #34241d;
+      --good-soft: #1e2a23;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { min-height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.6 var(--serif);
+    -webkit-text-size-adjust: 100%;
+    /* faint ruled-paper wash */
+    background-image: linear-gradient(var(--line) 1px, transparent 1px);
+    background-size: 100% 2.1rem;
+    background-attachment: fixed;
+    background-blend-mode: soft-light;
+  }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  h1, h2, h3 { line-height: 1.18; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  a { color: var(--accent); }
+
+  .wrap { max-width: 44rem; margin: 0 auto; padding: 1.4rem 1.1rem 5rem; }
+
+  /* ---- chrome is monospace, reading copy is serif ---- */
+  .kicker, .field, .step-no, .btn, .seg button, .stat-k, .verdict-tag,
+  .topic, .progress-lbl, .pill, .flaw-tag, .foot {
+    font-family: var(--mono);
+    text-transform: uppercase;
+    letter-spacing: .1em;
+    font-size: .7rem;
+  }
+
+  header.masthead { border-bottom: 2px solid var(--ink); padding-bottom: .7rem; margin-bottom: 1.3rem; }
+  .kicker { color: var(--ink-dim); display: block; margin-bottom: .3rem; }
+  header.masthead h1 { font-family: var(--serif); font-size: 1.7rem; }
+  header.masthead .sub { color: var(--ink-dim); font-family: var(--mono); text-transform: none; letter-spacing: 0; font-size: .82rem; margin-top: .35rem; }
+
+  .card {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 1.15rem 1.2rem;
+    box-shadow: 0 1px 0 var(--line);
+  }
+  .card + .card { margin-top: 1rem; }
+
+  p { margin: 0 0 .9rem; text-wrap: pretty; }
+  p:last-child { margin-bottom: 0; }
+  .lede { color: var(--ink-dim); font-size: 1.05rem; }
+
+  .btn {
+    background: var(--paper-2); border: 1px solid var(--line-2); border-radius: 8px;
+    padding: .62rem 1rem; font-weight: 600; letter-spacing: .04em;
+    transition: border-color .12s, background .12s;
+  }
+  .btn:hover { border-color: var(--ink-dim); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.primary:hover { filter: brightness(1.06); }
+  .btn.big { width: 100%; padding: .9rem 1.2rem; font-size: .78rem; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  button:focus-visible, [tabindex]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .row { display: flex; gap: .6rem; flex-wrap: wrap; align-items: center; }
+  .spacer { flex: 1; }
+
+  .field { color: var(--ink-dim); display: block; margin: 1.1rem 0 .5rem; }
+
+  /* segmented control for the reveal-timing toggle */
+  .seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 999px; overflow: hidden; background: var(--paper-2); }
+  .seg button { background: none; border: 0; padding: .5rem .9rem; color: var(--ink-dim); }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+  .seg-note { color: var(--ink-faint); font-family: var(--mono); text-transform: none; letter-spacing: 0; font-size: .78rem; margin-top: .55rem; min-height: 1.2rem; }
+
+  ul.plain { margin: .3rem 0 0; padding-left: 1.1rem; color: var(--ink-dim); }
+  ul.plain li { margin: .3rem 0; }
+
+  /* ---- study round ---- */
+  .progress { display: flex; align-items: center; gap: .5rem; margin-bottom: 1rem; }
+  .progress .dots { display: flex; gap: .35rem; }
+  .progress .dots i { width: .55rem; height: .55rem; border-radius: 999px; background: var(--line-2); }
+  .progress .dots i.done { background: var(--ink-dim); }
+  .progress .dots i.now { background: var(--accent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 22%, transparent); }
+  .progress-lbl { color: var(--ink-dim); }
+
+  .topic { color: var(--ink-faint); display: block; margin-bottom: .55rem; }
+  .q { font-size: 1.28rem; font-weight: 600; margin-bottom: 1rem; line-height: 1.3; }
+
+  .answer {
+    display: flex; gap: .7rem; align-items: baseline;
+    background: var(--paper-2); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: .7rem .85rem; margin-bottom: 1.1rem;
+  }
+  .answer .lbl { font-family: var(--mono); text-transform: uppercase; letter-spacing: .1em; font-size: .66rem; color: var(--ink-faint); flex: none; padding-top: .18rem; }
+  .answer .val { font-weight: 650; font-size: 1.08rem; }
+
+  .trace-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .5rem; }
+  .trace-head .field { margin: 0; }
+  .trace {
+    border: 1px dashed var(--line-2); border-radius: 8px;
+    padding: .3rem .85rem; margin-bottom: 1rem;
+    transition: opacity .5s ease;
+  }
+  .trace.reveal-hidden { display: none; }
+  .trace.fading { opacity: 0; }
+
+  ol.steps { list-style: none; margin: 0; padding: 0; counter-reset: s; }
+  ol.steps li {
+    position: relative; padding: .7rem 0 .7rem 2.4rem;
+    border-top: 1px solid var(--line);
+  }
+  ol.steps li:first-child { border-top: 0; }
+  ol.steps li::before {
+    counter-increment: s; content: counter(s);
+    position: absolute; left: 0; top: .72rem;
+    font-family: var(--mono); font-size: .72rem; font-weight: 600;
+    color: var(--ink-faint);
+    width: 1.5rem; height: 1.5rem; line-height: 1.5rem; text-align: center;
+    border: 1px solid var(--line-2); border-radius: 999px;
+  }
+  /* flagging mode: steps become pickable */
+  ol.steps.pickable li { cursor: pointer; border-radius: 6px; }
+  ol.steps.pickable li:hover { background: var(--flag-soft); }
+  ol.steps li.picked { background: var(--flag-soft); }
+  ol.steps li.picked::before { border-color: var(--flag); color: var(--flag); }
+  /* revealed flaw */
+  ol.steps li.flaw { background: var(--flag-soft); border-radius: 6px; }
+  ol.steps li.flaw::before { background: var(--flag); border-color: var(--flag); color: var(--accent-ink); }
+  .flaw-tag {
+    display: inline-block; margin-top: .5rem; color: var(--flag);
+    border: 1px solid var(--flag); border-radius: 999px; padding: .12rem .5rem;
+  }
+  .flaw-why { margin-top: .5rem; color: var(--ink-dim); font-family: var(--serif); font-size: .95rem; }
+
+  .judge { display: flex; gap: .6rem; flex-wrap: wrap; }
+  .judge .btn { flex: 1; min-width: 11rem; }
+  .btn.trust { border-color: var(--accent); }
+  .btn.trust:hover { background: var(--good-soft); }
+  .btn.flag { border-color: var(--flag); color: var(--flag); }
+  .btn.flag:hover { background: var(--flag-soft); }
+
+  .hint { color: var(--ink-dim); font-family: var(--mono); text-transform: none; letter-spacing: 0; font-size: .8rem; margin: .2rem 0 .8rem; }
+
+  .show-trace { margin-bottom: 1rem; }
+
+  /* verdict panel after judging */
+  .verdict { border-radius: 10px; padding: .9rem 1rem; margin: 1rem 0 0; border: 1px solid var(--line-2); }
+  .verdict.sound { background: var(--good-soft); border-color: color-mix(in oklab, var(--accent) 40%, transparent); }
+  .verdict.unfaithful { background: var(--flag-soft); border-color: color-mix(in oklab, var(--flag) 40%, transparent); }
+  .verdict-tag { display: block; margin-bottom: .35rem; }
+  .verdict.sound .verdict-tag { color: var(--accent); }
+  .verdict.unfaithful .verdict-tag { color: var(--flag); }
+  .verdict h3 { font-size: 1.05rem; margin-bottom: .3rem; }
+  .verdict p { font-size: .95rem; color: var(--ink-dim); }
+
+  /* ---- results ---- */
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .8rem; margin: 1.1rem 0; }
+  .stat { background: var(--paper-2); border: 1px solid var(--line); border-radius: 10px; padding: .85rem .9rem; }
+  .stat-v { font-family: var(--mono); font-size: 1.9rem; font-weight: 650; line-height: 1; letter-spacing: -.02em; }
+  .stat-k { color: var(--ink-dim); display: block; margin-top: .45rem; }
+  .stat.warn .stat-v { color: var(--flag); }
+  .stat.good .stat-v { color: var(--accent); }
+
+  .finding { border-left: 3px solid var(--ink); padding-left: 1rem; margin: 1.2rem 0; }
+  .finding h3 { font-family: var(--mono); text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; color: var(--ink-dim); margin-bottom: .5rem; }
+
+  .breakdown { margin: 1rem 0 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .breakdown .brow { display: flex; gap: .7rem; align-items: baseline; padding: .6rem .8rem; border-top: 1px solid var(--line); font-size: .92rem; }
+  .breakdown .brow:first-child { border-top: 0; }
+  .breakdown .bmark { font-family: var(--mono); font-size: .78rem; flex: none; width: 1.4rem; }
+  .breakdown .bmark.hit { color: var(--accent); }
+  .breakdown .bmark.miss { color: var(--flag); }
+  .breakdown .bq { flex: 1; color: var(--ink-dim); }
+  .breakdown .btag { font-family: var(--mono); text-transform: uppercase; letter-spacing: .08em; font-size: .64rem; color: var(--ink-faint); flex: none; }
+
+  .foot { color: var(--ink-faint); text-transform: none; letter-spacing: 0; margin-top: 2.2rem; border-top: 1px solid var(--line); padding-top: 1rem; line-height: 1.7; }
+  .foot a { color: var(--ink-dim); }
+
+  .hidden { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="masthead">
+    <span class="kicker">whatupwolf · lab · experiment</span>
+    <h1>Reasoning-trace A/B</h1>
+    <p class="sub">A confident answer is easy. A trustworthy one is harder to tell apart than you'd think.</p>
+  </header>
+
+  <!-- ============ INTRO ============ -->
+  <section id="intro">
+    <div class="card">
+      <p class="lede">
+        An AI gives you a question, a confident final answer, and the reasoning trace it says
+        it used to get there. Your one job each round: decide whether you <em>trust the reasoning</em>.
+      </p>
+      <p>
+        Some traces are sound. Others reach the <strong>same confident answer</strong> through a
+        subtly broken step — a fabricated fact, an invented premise, a bad justification that
+        happens to land right. The catch: a wrong reason for a right answer is exactly what's
+        hard to notice. That's the thing this little study is about.
+      </p>
+
+      <label class="field" for="mode-seg">When should the trace appear?</label>
+      <div class="seg" id="mode-seg" role="group" aria-label="Reveal timing">
+        <button data-mode="instant" aria-pressed="true">Instant</button>
+        <button data-mode="delayed" aria-pressed="false">Delayed</button>
+        <button data-mode="ondemand" aria-pressed="false">On demand</button>
+      </div>
+      <p class="seg-note" id="seg-note">Trace shows the moment the answer does.</p>
+
+      <label class="field">How it runs</label>
+      <ul class="plain">
+        <li>4 rounds — a mix of sound traces and subtly unfaithful ones, shuffled fresh each time.</li>
+        <li>Judge each: trust it, or flag it. Flag one and you can point at the step you suspect.</li>
+        <li>At the end: how many flaws you caught, how many fooled you, and what the research found.</li>
+      </ul>
+
+      <div style="margin-top:1.3rem">
+        <button class="btn primary big" id="begin">Start the study</button>
+      </div>
+      <p class="hint" style="margin-top:.8rem">
+        Runs entirely in this one file — offline, no accounts, no API key, no live model call.
+        Every trace below is hand-written and fixed.
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ STUDY ============ -->
+  <section id="study" class="hidden">
+    <div class="progress">
+      <div class="dots" id="dots" aria-hidden="true"></div>
+      <span class="spacer"></span>
+      <span class="progress-lbl" id="round-lbl">Round 1 / 4</span>
+    </div>
+
+    <div class="card" id="round-card">
+      <span class="topic" id="topic">—</span>
+      <p class="q" id="question">—</p>
+
+      <div class="answer">
+        <span class="lbl">Answer</span>
+        <span class="val" id="answer">—</span>
+      </div>
+
+      <button class="btn show-trace hidden" id="show-trace">▸ Show the reasoning trace</button>
+
+      <div class="trace-head" id="trace-head">
+        <span class="field">Reasoning trace</span>
+      </div>
+      <div class="trace" id="trace">
+        <ol class="steps" id="steps"></ol>
+      </div>
+
+      <div id="judge-block">
+        <p class="hint" id="judge-hint">Do you trust how it got there?</p>
+        <div class="judge" id="judge">
+          <button class="btn trust" id="btn-trust">I trust this reasoning</button>
+          <button class="btn flag" id="btn-flag">Something's off</button>
+        </div>
+      </div>
+
+      <div id="verdict-block" class="hidden"></div>
+
+      <div class="row" id="next-block" style="margin-top:1.1rem" hidden>
+        <span class="spacer"></span>
+        <button class="btn primary" id="btn-next">Next round →</button>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:.8rem" id="mode-reminder"></p>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="results" class="hidden">
+    <div class="card">
+      <span class="topic">Your results</span>
+      <h2 id="res-head">—</h2>
+      <div class="stat-grid" id="stat-grid"></div>
+
+      <div class="breakdown" id="breakdown"></div>
+
+      <div class="finding">
+        <h3>What the research found</h3>
+        <p>
+          In <em>Seeing the Reasoning</em>, people were shown model answers with reasoning traces and
+          asked how much they trusted them. Changing <strong>how</strong> the trace was presented —
+          shown instantly, held back, or offered on demand — barely moved trust. What moved trust was
+          whether the reasoning was actually <strong>reliable</strong>. And when a trace was
+          <em>unfaithful</em> — it reached the right answer through a fabricated or broken step —
+          most people didn't catch it, and trusted it about as much as a sound one.
+        </p>
+        <p>
+          So a confident, fluent trace buys trust whether or not it earns it. The presentation you
+          just picked is the part that <em>doesn't</em> matter much; the reliability underneath is
+          the part that does — and it's the part we're worst at reading.
+        </p>
+        <p class="hint" style="margin-top:.6rem">
+          Source: <a href="https://arxiv.org/abs/2603.07306" target="_blank" rel="noopener">Seeing the Reasoning — arXiv:2603.07306</a>
+        </p>
+      </div>
+
+      <p class="hint">Why it matters: as more tools show their "chain of thought," a visible trace
+        feels like proof of work. It isn't. Reading a trace critically — where's the load-bearing
+        step, and is it actually true? — is a literacy skill, not a reflex.</p>
+
+      <div class="row" style="margin-top:1.2rem">
+        <button class="btn primary" id="btn-again">Run it again</button>
+        <button class="btn" id="btn-mode">Try a different reveal timing</button>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot">
+    Built as a lab experiment for <a href="/lab">whatupwolf.com/lab</a>. One HTML file, no build step,
+    no dependencies, no network calls — the traces are static and hand-written, so it works offline and
+    reads the same on a plane. The finding it demonstrates is real; the example traces are illustrations of it.
+  </p>
+</div>
+
+<script>
+"use strict";
+
+/* =========================================================================
+   REASONING-TRACE A/B  —  static trace pairs
+
+   Each pair carries one question and one confident final answer. Both the
+   "faithful" and "unfaithful" traces reach THAT SAME answer — but the
+   unfaithful one gets there through a real, subtle flaw (a fabricated fact,
+   an invented premise, or a plausible-sounding justification that's wrong).
+   `flaw` is the 0-based index of the broken step. The answers are all
+   genuinely correct; only the reasoning differs.
+   ========================================================================= */
+const PAIRS = [
+  {
+    id: "latitude",
+    topic: "Geography",
+    question: "Which city is farther north — Rome or New York City?",
+    answer: "Rome is farther north.",
+    faithful: {
+      steps: [
+        "Rome sits at a latitude of about 41.9° N.",
+        "New York City sits at about 40.7° N.",
+        "41.9° is greater than 40.7°, so Rome is the more northerly of the two."
+      ],
+      note: "Every step is a real figure and the comparison is direct. The surprising part — a Mediterranean city being north of New York — is simply true."
+    },
+    unfaithful: {
+      steps: [
+        "Rome sits at a latitude of about 41.9° N.",
+        "New York City is at roughly 38° N — about level with Washington, D.C.",
+        "Since 41.9° is well north of 38°, Rome is farther north."
+      ],
+      flaw: 1,
+      flawLabel: "Fabricated fact",
+      explain: "New York City is at about 40.7° N, not 38°, and it is not level with Washington (≈38.9° N). The conclusion is still correct, but it's resting on an invented latitude — a wrong reason for a right answer."
+    }
+  },
+  {
+    id: "trophies",
+    topic: "Logic",
+    question: "Everything in the cabinet is gold. The cup on the table is not gold. Could the cup be inside the cabinet?",
+    answer: "No — the cup cannot be in the cabinet.",
+    faithful: {
+      steps: [
+        "Given: every object in the cabinet is gold.",
+        "Given: the cup is not gold.",
+        "If the cup were in the cabinet it would have to be gold — but it isn't. So it can't be in there."
+      ],
+      note: "This is a clean contrapositive: 'in the cabinet → gold' plus 'not gold' forces 'not in the cabinet.' Only the two stated facts are used."
+    },
+    unfaithful: {
+      steps: [
+        "Given: every object in the cabinet is gold. Given: the cup is not gold.",
+        "Not being gold, the cup can't be one of the cabinet's trophies.",
+        "And since only trophies are kept in the cabinet, the cup isn't in the cabinet."
+      ],
+      flaw: 2,
+      flawLabel: "Invented premise",
+      explain: "Nobody said the cabinet holds only trophies — that premise is invented mid-proof. The real facts do force the same 'No' (via step-by-step above), but this trace reaches it by smuggling in a rule that was never given."
+    }
+  },
+  {
+    id: "coin",
+    topic: "Probability",
+    question: "You flip a fair coin twice. What's the probability of getting at least one heads?",
+    answer: "3 in 4 (75%).",
+    faithful: {
+      steps: [
+        "The only way to get no heads at all is tails-then-tails.",
+        "P(tails, tails) = 1/2 × 1/2 = 1/4.",
+        "So P(at least one heads) = 1 − 1/4 = 3/4."
+      ],
+      note: "'At least one' is easiest as one-minus-the-opposite. The opposite (no heads) is a single outcome with probability 1/4, giving 3/4."
+    },
+    unfaithful: {
+      steps: [
+        "The two flips are independent of each other.",
+        "Because independent events can't overlap, the chance of getting no heads is one flip's tails-chance squared: (1/2)² = 1/4.",
+        "So P(at least one heads) = 1 − 1/4 = 3/4."
+      ],
+      flaw: 1,
+      flawLabel: "Broken justification",
+      explain: "Independence does NOT mean events 'can't overlap' — that's confusing it with mutual exclusivity. (Getting heads on flip 1 and on flip 2 are independent yet absolutely can happen together.) The number 1/4 is right, but the reason given for it is a real conceptual error."
+    }
+  },
+  {
+    id: "printing",
+    topic: "History",
+    question: "Which came first — Gutenberg's movable-type printing press in Europe, or Columbus reaching the Americas?",
+    answer: "The printing press came first.",
+    faithful: {
+      steps: [
+        "Gutenberg's movable-type press dates to around 1440, in Mainz.",
+        "Columbus reached the Americas in 1492.",
+        "1440 comes before 1492, so the press is the earlier of the two."
+      ],
+      note: "Both dates are standard and the ordering is a straight comparison."
+    },
+    unfaithful: {
+      steps: [
+        "Gutenberg printed his famous Bible around 1455, so the press clearly existed by the mid-1450s.",
+        "Columbus set sail on his first voyage in 1502, sighting land the following year.",
+        "The 1450s come before the 1500s, so the printing press came first."
+      ],
+      flaw: 1,
+      flawLabel: "Wrong date",
+      explain: "Columbus's first voyage was 1492, not 1502. The answer still holds — 1455 is before either date — but the trace props it up with a fabricated year that a quick reader is unlikely to challenge."
+    }
+  }
+];
+
+const MODE_NOTES = {
+  instant:  "Trace shows the moment the answer does.",
+  delayed:  "You see the answer first; the trace fades in a beat later.",
+  ondemand: "You see the answer; the trace stays hidden until you ask for it."
+};
+const MODE_LABEL = { instant: "Instant", delayed: "Delayed", ondemand: "On demand" };
+
+/* -------- helpers -------- */
+const $ = (id) => document.getElementById(id);
+function shuffle(a) {
+  a = a.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/* Build a balanced session: every pair once, exactly half faithful / half
+   unfaithful, order shuffled — so no run is all-sound or all-flawed. */
+function buildSession() {
+  const order = shuffle(PAIRS);
+  const half = Math.floor(order.length / 2);
+  // variant slots: first `half` unfaithful, rest faithful, then shuffled onto the order
+  const variants = shuffle(
+    order.map((_, i) => (i < half ? "unfaithful" : "faithful"))
+  );
+  return order.map((pair, i) => ({ pair, variant: variants[i] }));
+}
+
+/* -------- state -------- */
+let mode = "instant";
+let session = [];
+let idx = 0;
+let results = [];
+let delayTimer = null;
+
+/* -------- intro / mode toggle -------- */
+$("mode-seg").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-mode]");
+  if (!b) return;
+  mode = b.dataset.mode;
+  for (const btn of $("mode-seg").querySelectorAll("button")) {
+    btn.setAttribute("aria-pressed", String(btn === b));
+  }
+  $("seg-note").textContent = MODE_NOTES[mode];
+});
+
+$("begin").addEventListener("click", startStudy);
+$("btn-again").addEventListener("click", startStudy);
+$("btn-mode").addEventListener("click", () => {
+  show("intro");
+  window.scrollTo({ top: 0, behavior: "auto" });
+});
+
+function show(name) {
+  for (const s of ["intro", "study", "results"]) {
+    $(s).classList.toggle("hidden", s !== name);
+  }
+}
+
+function startStudy() {
+  session = buildSession();
+  idx = 0;
+  results = [];
+  show("study");
+  renderRound();
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+
+/* -------- a round -------- */
+function renderRound() {
+  clearTimeout(delayTimer);
+  const { pair, variant } = session[idx];
+  const trace = pair[variant];
+
+  // progress
+  const dots = session.map((_, i) =>
+    `<i class="${i < idx ? "done" : i === idx ? "now" : ""}"></i>`
+  ).join("");
+  $("dots").innerHTML = dots;
+  $("round-lbl").textContent = `Round ${idx + 1} / ${session.length}`;
+  $("mode-reminder").textContent =
+    `Reveal timing: ${MODE_LABEL[mode]} — ${MODE_NOTES[mode]}`;
+
+  // content
+  $("topic").textContent = pair.topic;
+  $("question").textContent = pair.question;
+  $("answer").textContent = pair.answer;
+
+  // steps
+  const stepsEl = $("steps");
+  stepsEl.className = "steps";
+  stepsEl.innerHTML = trace.steps
+    .map((s) => `<li>${escapeHtml(s)}</li>`)
+    .join("");
+
+  // reset judge / verdict / next
+  $("judge-block").classList.remove("hidden");
+  $("btn-trust").disabled = false;
+  $("btn-flag").disabled = false;
+  $("judge-hint").textContent = "Do you trust how it got there?";
+  $("verdict-block").classList.add("hidden");
+  $("verdict-block").innerHTML = "";
+  $("next-block").hidden = true;
+  $("btn-next").textContent =
+    idx === session.length - 1 ? "See your results →" : "Next round →";
+
+  // reveal-timing behaviour
+  const traceEl = $("trace");
+  const headEl = $("trace-head");
+  const showBtn = $("show-trace");
+  traceEl.classList.remove("reveal-hidden", "fading");
+  headEl.classList.remove("hidden");
+  showBtn.classList.add("hidden");
+
+  let opened = true; // whether the trace is visible to the reader
+  if (mode === "instant") {
+    // trace already visible
+  } else if (mode === "delayed") {
+    // answer shows now; trace starts hidden-by-opacity and fades in a beat later
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      // no motion: reveal near-instantly to keep it usable
+      traceEl.classList.remove("fading");
+    } else {
+      traceEl.classList.add("fading");
+      delayTimer = setTimeout(() => traceEl.classList.remove("fading"), 1100);
+    }
+  } else if (mode === "ondemand") {
+    opened = false;
+    traceEl.classList.add("reveal-hidden");
+    headEl.classList.add("hidden");
+    showBtn.classList.remove("hidden");
+    showBtn.textContent = "▸ Show the reasoning trace";
+  }
+  currentOpened = opened;
+
+  // wire the on-demand reveal
+  showBtn.onclick = () => {
+    traceEl.classList.remove("reveal-hidden");
+    headEl.classList.remove("hidden");
+    showBtn.classList.add("hidden");
+    currentOpened = true;
+  };
+}
+
+let currentOpened = true;
+
+/* -------- judging -------- */
+$("btn-trust").addEventListener("click", () => finalize("trust", null));
+
+$("btn-flag").addEventListener("click", () => {
+  // ensure the trace is visible so they can point at a step
+  const traceEl = $("trace");
+  traceEl.classList.remove("reveal-hidden", "fading");
+  $("trace-head").classList.remove("hidden");
+  $("show-trace").classList.add("hidden");
+  currentOpened = true;
+
+  $("btn-trust").disabled = true;
+  $("btn-flag").disabled = true;
+  $("judge-hint").textContent = "Which step do you suspect? Click it — or skip and just flag it.";
+
+  const stepsEl = $("steps");
+  stepsEl.classList.add("pickable");
+  const lis = [...stepsEl.querySelectorAll("li")];
+  lis.forEach((li, i) => {
+    li.setAttribute("role", "button");
+    li.setAttribute("tabindex", "0");
+    const pick = () => finalize("flag", i);
+    li.addEventListener("click", pick);
+    li.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); }
+    });
+  });
+
+  // "just flag it" affordance
+  const skip = document.createElement("button");
+  skip.className = "btn";
+  skip.id = "btn-skip-pick";
+  skip.style.marginTop = ".7rem";
+  skip.textContent = "Can't tell which — just flag it";
+  skip.addEventListener("click", () => finalize("flag", null));
+  $("judge").after(skip);
+});
+
+function finalize(judged, pickedStep) {
+  clearTimeout(delayTimer);
+  const { pair, variant } = session[idx];
+  const trace = pair[variant];
+  const isUnfaithful = variant === "unfaithful";
+
+  const skip = $("btn-skip-pick");
+  if (skip) skip.remove();
+  $("judge-block").classList.add("hidden");
+  $("steps").classList.remove("pickable");
+
+  // score
+  const caught = isUnfaithful && judged === "flag";
+  const fooled = isUnfaithful && judged === "trust";
+  const falseAlarm = !isUnfaithful && judged === "flag";
+  const correctTrust = !isUnfaithful && judged === "trust";
+  const pinpoint = caught && pickedStep === trace.flaw;
+
+  results.push({
+    id: pair.id, topic: pair.topic, question: pair.question,
+    variant, judged, pickedStep, caught, fooled, falseAlarm, correctTrust,
+    pinpoint, opened: currentOpened, flaw: isUnfaithful ? trace.flaw : null
+  });
+
+  // annotate the steps on reveal
+  const lis = [...$("steps").querySelectorAll("li")];
+  lis.forEach((li) => { li.classList.remove("picked"); li.removeAttribute("role"); li.removeAttribute("tabindex"); });
+  if (pickedStep != null && lis[pickedStep]) lis[pickedStep].classList.add("picked");
+  if (isUnfaithful && lis[trace.flaw]) {
+    const li = lis[trace.flaw];
+    li.classList.add("flaw");
+    li.insertAdjacentHTML("beforeend",
+      `<div><span class="flaw-tag">${escapeHtml(trace.flawLabel)}</span></div>` +
+      `<div class="flaw-why">${escapeHtml(trace.explain)}</div>`);
+  }
+
+  // verdict panel
+  const vb = $("verdict-block");
+  vb.className = "verdict " + (isUnfaithful ? "unfaithful" : "sound");
+  let tag, head, body;
+  if (isUnfaithful) {
+    tag = "Trace was unfaithful";
+    if (caught) {
+      head = pinpoint ? "Caught it — and the exact step." : "Caught it.";
+      body = pinpoint
+        ? "You flagged the trace and put your finger on the broken step. That's the whole skill."
+        : "You flagged the trace. " + (pickedStep != null
+            ? "You pointed at a different step, but you were right that something was wrong."
+            : "You couldn't name the step, but you were right to distrust it.");
+    } else {
+      head = "It fooled you.";
+      body = "The answer was right, so the trace felt right — but it got there through the flawed step now marked above. That's exactly the trap.";
+    }
+  } else {
+    tag = "Trace was sound";
+    if (correctTrust) {
+      head = "Rightly trusted.";
+      body = trace.note;
+    } else {
+      head = "A false alarm.";
+      body = "You flagged it, but this trace holds up. " + trace.note;
+    }
+  }
+  vb.innerHTML =
+    `<span class="verdict-tag">${escapeHtml(tag)}</span>` +
+    `<h3>${escapeHtml(head)}</h3><p>${escapeHtml(body)}</p>`;
+  vb.classList.remove("hidden");
+
+  $("next-block").hidden = false;
+  vb.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
+}
+
+$("btn-next").addEventListener("click", () => {
+  idx++;
+  if (idx >= session.length) {
+    renderResults();
+  } else {
+    renderRound();
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }
+});
+
+/* -------- results -------- */
+function renderResults() {
+  show("results");
+  window.scrollTo({ top: 0, behavior: "auto" });
+
+  const unfaithful = results.filter((r) => r.variant === "unfaithful");
+  const caught = unfaithful.filter((r) => r.caught).length;
+  const fooled = unfaithful.filter((r) => r.fooled).length;
+  const correct = results.filter((r) => r.caught || r.correctTrust).length;
+  const falseAlarms = results.filter((r) => r.falseAlarm).length;
+
+  // headline
+  let head;
+  if (unfaithful.length === 0) {
+    head = "No flawed traces this round.";
+  } else if (caught === unfaithful.length) {
+    head = "You caught every unfaithful trace.";
+  } else if (caught === 0) {
+    head = "Every unfaithful trace slipped past you.";
+  } else {
+    head = `You caught ${caught} of ${unfaithful.length} unfaithful traces.`;
+  }
+  $("res-head").textContent = head;
+
+  // stat tiles
+  $("stat-grid").innerHTML = [
+    tile(`${caught}/${unfaithful.length}`, "flaws caught", "good"),
+    tile(String(fooled), "times fooled", fooled > 0 ? "warn" : ""),
+    tile(`${correct}/${results.length}`, "judged correctly", ""),
+    tile(String(falseAlarms), "false alarms", "")
+  ].join("");
+
+  // per-round breakdown
+  $("breakdown").innerHTML = results.map((r) => {
+    const hit = r.caught || r.correctTrust;
+    const mark = hit ? `<span class="bmark hit">✓</span>` : `<span class="bmark miss">✕</span>`;
+    let tag;
+    if (r.fooled) tag = "fooled";
+    else if (r.caught) tag = r.pinpoint ? "caught · exact" : "caught";
+    else if (r.correctTrust) tag = "trusted · sound";
+    else tag = "false alarm";
+    return `<div class="brow">${mark}` +
+      `<span class="bq">${escapeHtml(r.question)}</span>` +
+      `<span class="btag">${escapeHtml(tag)}</span></div>`;
+  }).join("");
+}
+
+function tile(v, k, cls) {
+  return `<div class="stat ${cls}"><div class="stat-v">${escapeHtml(v)}</div>` +
+    `<span class="stat-k">${escapeHtml(k)}</span></div>`;
+}
+
+/* -------- util -------- */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+</script>
+</body>
+</html>
