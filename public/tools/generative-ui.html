@@ -1,0 +1,1026 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Generative UI Canvas — apps that Claude builds as you talk</title>
+<meta name="description" content="Type a request and Claude generates interactive app windows on a canvas. Bring your own Anthropic key — it stays in your browser. Generated code runs sandboxed. One file, no build step, offline shell.">
+<style>
+  :root {
+    --paper: #f4f1ea;
+    --paper-2: #efeae0;
+    --card: #fbf9f4;
+    --ink: #1c1b17;
+    --ink-dim: #6d6a5f;
+    --line: #ddd7c8;
+    --line-strong: #cbc4b2;
+    --accent: #b8681a;
+    --accent-ink: #fffdf8;
+    --canvas: #e7e1d3;
+    --canvas-dot: #cfc7b4;
+    --ok: #3f7d3a;
+    --warn: #b23b2e;
+    --radius: 12px;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #17150f; --paper-2: #1f1c14; --card: #211e16; --ink: #f4f1ea;
+      --ink-dim: #a29d8f; --line: #34302479; --line: #38342a; --line-strong: #4a4536;
+      --accent: #ffb454; --accent-ink: #1b1508; --canvas: #100e09; --canvas-dot: #2a271d;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.5 var(--sans);
+    display: flex;
+    flex-direction: column;
+    -webkit-text-size-adjust: 100%;
+    overflow: hidden;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  h1, h2, h3 { margin: 0; line-height: 1.2; }
+  a { color: var(--accent); }
+
+  /* ---------------- masthead + toolbar ---------------- */
+  header.masthead {
+    display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    padding: .55rem .9rem; border-bottom: 1px solid var(--line); background: var(--paper-2);
+  }
+  .brand { display: flex; align-items: baseline; gap: .55rem; }
+  .brand h1 { font-size: 1.02rem; letter-spacing: -.01em; }
+  .brand .kicker {
+    font-family: var(--mono); font-size: .64rem; text-transform: uppercase;
+    letter-spacing: .13em; color: var(--ink-dim);
+  }
+  .toolbar { margin-left: auto; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .keystat {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .04em;
+    display: inline-flex; align-items: center; gap: .4rem;
+    border: 1px solid var(--line); border-radius: 999px; padding: .28rem .6rem; background: var(--card);
+  }
+  .keystat .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--warn); }
+  .keystat.ok .dot { background: var(--ok); }
+  select.model {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .02em;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .3rem .5rem;
+  }
+  .tbtn {
+    font-family: var(--mono); font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .34rem .6rem;
+  }
+  .tbtn:hover { border-color: var(--line-strong); }
+
+  /* ---------------- stage / canvas ---------------- */
+  main { flex: 1; position: relative; min-height: 0; }
+  .canvas {
+    position: absolute; inset: 0; overflow: hidden; cursor: grab;
+    background-color: var(--canvas);
+    background-image: radial-gradient(var(--canvas-dot) 1.2px, transparent 1.2px);
+    background-size: 26px 26px;
+    touch-action: none;
+  }
+  .canvas.panning { cursor: grabbing; }
+  .world { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+
+  /* window pane */
+  .pane {
+    position: absolute; width: 340px; background: var(--card);
+    border: 1px solid var(--line-strong); border-radius: 12px;
+    box-shadow: 0 10px 34px rgba(20,16,8,.16), 0 2px 6px rgba(20,16,8,.10);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  @media (prefers-color-scheme: dark) { .pane { box-shadow: 0 12px 40px rgba(0,0,0,.5); } }
+  .pane.focused { border-color: var(--accent); }
+  .pane-bar {
+    display: flex; align-items: center; gap: .5rem; padding: .4rem .55rem;
+    border-bottom: 1px solid var(--line); background: var(--paper-2); cursor: grab; user-select: none;
+  }
+  .pane.dragging .pane-bar { cursor: grabbing; }
+  .pane-title {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .01em; font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1;
+  }
+  .pane-id { font-family: var(--mono); font-size: .58rem; color: var(--ink-dim); }
+  .pane-x {
+    border: 0; background: none; color: var(--ink-dim); font-size: 1rem; line-height: 1;
+    padding: 0 .2rem; border-radius: 6px;
+  }
+  .pane-x:hover { color: var(--warn); }
+  .pane-body { position: relative; height: 300px; background: #fff; }
+  .pane-body iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: #fff; }
+  .pane-resize {
+    position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize;
+    background: linear-gradient(135deg, transparent 45%, var(--line-strong) 45%, var(--line-strong) 60%, transparent 60%);
+  }
+
+  /* empty state */
+  .empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 2rem; pointer-events: none;
+  }
+  .empty .inner {
+    max-width: 30rem; text-align: center; color: var(--ink-dim); font-size: .95rem;
+  }
+  .empty h2 { font-size: 1.15rem; color: var(--ink); margin-bottom: .5rem; letter-spacing: -.01em; }
+  .empty code { font-family: var(--mono); font-size: .84em; background: var(--paper-2); padding: .05rem .3rem; border-radius: 5px; }
+
+  /* view controls */
+  .viewctl {
+    position: absolute; right: .7rem; bottom: .7rem; display: flex; gap: .3rem; z-index: 5;
+  }
+  .viewctl button {
+    font-family: var(--mono); font-size: .8rem; width: 2rem; height: 2rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(20,16,8,.12);
+  }
+  .viewctl button.wide { width: auto; padding: 0 .55rem; font-size: .64rem; text-transform: uppercase; letter-spacing: .06em; }
+  .viewctl button:hover { border-color: var(--line-strong); }
+
+  /* ---------------- activity log ---------------- */
+  .log {
+    border-top: 1px solid var(--line); background: var(--paper-2);
+    max-height: 8.5rem; min-height: 2.1rem; overflow-y: auto; padding: .4rem .9rem;
+    font-family: var(--mono); font-size: .72rem; line-height: 1.5;
+  }
+  .log .line { display: flex; gap: .55rem; padding: .05rem 0; }
+  .log .tag {
+    flex: none; width: 4.4rem; text-transform: uppercase; letter-spacing: .06em; font-size: .62rem;
+    color: var(--ink-dim); padding-top: .1rem;
+  }
+  .log .msg { white-space: pre-wrap; word-break: break-word; }
+  .log .line.you .tag { color: var(--accent); }
+  .log .line.tool .tag { color: var(--ok); }
+  .log .line.err .tag, .log .line.err .msg { color: var(--warn); }
+  .log .line.sys .msg { color: var(--ink-dim); }
+
+  /* ---------------- composer ---------------- */
+  .composer {
+    border-top: 1px solid var(--line); background: var(--paper-2);
+    padding: .6rem .9rem calc(.6rem + env(safe-area-inset-bottom)); display: flex; gap: .6rem; align-items: flex-end;
+  }
+  .composer textarea {
+    flex: 1; resize: none; height: 2.7rem; max-height: 8rem; min-height: 2.7rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: .55rem .7rem; line-height: 1.4;
+  }
+  .composer textarea:focus, input:focus, select:focus, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .send {
+    flex: none; background: var(--accent); color: var(--accent-ink); border: 1px solid transparent;
+    border-radius: 10px; padding: 0 1.1rem; height: 2.7rem; font-weight: 650;
+  }
+  .send:disabled { opacity: .5; cursor: default; }
+  .send.stop { background: var(--warn); }
+  .statusline {
+    font-family: var(--mono); font-size: .68rem; color: var(--ink-dim);
+    padding: 0 .95rem .5rem; min-height: 1rem;
+  }
+  .statusline .spin { display: inline-block; animation: spin 1s steps(8) infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------------- modal ---------------- */
+  .scrim {
+    position: fixed; inset: 0; background: rgba(20,16,8,.5); z-index: 50;
+    display: none; align-items: center; justify-content: center; padding: 1rem;
+  }
+  .scrim.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--line-strong); border-radius: 14px;
+    max-width: 34rem; width: 100%; max-height: 90vh; overflow-y: auto;
+    padding: 1.4rem 1.5rem; box-shadow: 0 24px 60px rgba(20,16,8,.35);
+  }
+  .modal h2 { font-size: 1.2rem; margin-bottom: .3rem; letter-spacing: -.01em; }
+  .modal .sub { color: var(--ink-dim); font-size: .9rem; margin-bottom: 1.1rem; }
+  .modal label.field {
+    display: block; font-family: var(--mono); font-size: .68rem; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--ink-dim); margin: .9rem 0 .35rem;
+  }
+  .modal input[type="password"], .modal input[type="text"] {
+    width: 100%; background: var(--paper); border: 1px solid var(--line); border-radius: 9px;
+    padding: .6rem .7rem; font-family: var(--mono); font-size: .82rem;
+  }
+  .trust {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2);
+    padding: .8rem .9rem; margin: 1rem 0 .2rem; font-size: .86rem; color: var(--ink-dim);
+  }
+  .trust strong { color: var(--ink); }
+  .trust ul { margin: .5rem 0 0; padding-left: 1.1rem; }
+  .trust li { margin: .3rem 0; }
+  .modal .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1.2rem; align-items: center; }
+  .btn {
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: .55rem 1rem; font-weight: 600;
+  }
+  .btn:hover { border-color: var(--line-strong); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.danger { color: var(--warn); }
+  .modal .err { color: var(--warn); font-size: .85rem; margin-top: .6rem; min-height: 1rem; }
+  .spacer { flex: 1; }
+  .kbd { font-family: var(--mono); font-size: .78em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; padding: .05rem .35rem; }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="brand">
+    <h1>Generative UI Canvas</h1>
+    <span class="kicker">byo-key · claude builds the apps</span>
+  </div>
+  <div class="toolbar">
+    <button class="keystat" id="keystat" title="Manage your API key">
+      <span class="dot"></span><span id="keystat-label">no key</span>
+    </button>
+    <select class="model" id="model" title="Model"></select>
+    <button class="tbtn" id="help-btn">?</button>
+  </div>
+</header>
+
+<main>
+  <div class="canvas" id="canvas">
+    <div class="world" id="world"></div>
+    <div class="empty" id="empty">
+      <div class="inner">
+        <h2>Ask for an app.</h2>
+        <p>Type a request below — <code>a dice roller</code>, <code>a tip calculator</code>,
+        <code>a color palette generator</code> — and Claude builds it as an interactive window
+        right here. Click around inside a generated app and it talks back to the model.</p>
+      </div>
+    </div>
+  </div>
+  <div class="viewctl">
+    <button id="zoom-out" title="Zoom out">−</button>
+    <button id="zoom-in" title="Zoom in">+</button>
+    <button class="wide" id="zoom-reset" title="Reset view">reset</button>
+  </div>
+</main>
+
+<div class="log" id="log" aria-live="polite"></div>
+
+<div class="statusline" id="statusline"></div>
+
+<div class="composer">
+  <textarea id="composer" placeholder="Describe an app to build…  (⌘/Ctrl + Enter to send)" spellcheck="false"></textarea>
+  <button class="send" id="send">Build</button>
+</div>
+
+<!-- Key modal -->
+<div class="scrim" id="key-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="key-title">
+    <h2 id="key-title">Your Anthropic API key</h2>
+    <p class="sub">This tool calls Claude directly from your browser. Bring your own key.</p>
+
+    <div class="trust">
+      <strong>Your key stays in your browser. It is never sent to any server of ours.</strong>
+      <ul>
+        <li>It is stored only in this browser's <code>localStorage</code> and sent straight to
+          <code>api.anthropic.com</code> — nowhere else. This site is static; there is no backend to receive it.</li>
+        <li>Generated apps run in a <strong>sandboxed iframe</strong> with no access to this page, its storage,
+          or your key. They cannot read it.</li>
+        <li>Clear it any time with <em>Forget key</em> below.</li>
+      </ul>
+    </div>
+
+    <label class="field" for="key-input">API key (starts with <code>sk-ant-</code>)</label>
+    <input type="password" id="key-input" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+    <p class="err" id="key-err"></p>
+
+    <div class="row">
+      <button class="btn primary" id="key-save">Save key</button>
+      <button class="btn danger" id="key-forget">Forget key</button>
+      <span class="spacer"></span>
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Get a key ↗</a>
+    </div>
+  </div>
+</div>
+
+<!-- Help modal -->
+<div class="scrim" id="help-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <h2 id="help-title">How this works</h2>
+    <p class="sub">A generative-UI prototype for whatupwolf.com/lab.</p>
+    <div class="trust" style="background:var(--card)">
+      <p>You type a request. Claude answers by calling tools that <strong>create and edit app windows</strong>
+      on the canvas — each window is a small self-contained HTML app it writes on the fly. When you interact
+      with a generated app (click a button, submit a form), that event is posted back to the model, which
+      updates the window. The model, its tools, and the canvas form a loop.</p>
+      <ul>
+        <li><strong>Pan</strong> the canvas by dragging the background; <strong>zoom</strong> with the wheel or the +/− controls.</li>
+        <li><strong>Move</strong> a window by dragging its title bar; resize from the bottom-right corner.</li>
+        <li>Generated code runs <strong>sandboxed</strong> — <code>allow-scripts</code> only, no same-origin — so it
+          can run but cannot reach this page, its storage, or your key. All app↔page messages go over <code>postMessage</code>.</li>
+        <li>Nothing is persisted server-side. Windows live in memory for this session; only your key persists (locally).</li>
+      </ul>
+    </div>
+    <div class="row"><button class="btn primary" id="help-close">Got it</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+  var API_URL = "https://api.anthropic.com/v1/messages";
+  var ANTHROPIC_VERSION = "2023-06-01";
+  var KEY_STORE = "genui.anthropic-key";
+  var MODEL_STORE = "genui.model";
+  var MAX_TOOL_ROUNDS = 16;
+
+  var MODELS = [
+    { id: "claude-sonnet-5", label: "Sonnet 5", thinking: { type: "disabled" } },
+    { id: "claude-opus-4-8", label: "Opus 4.8", thinking: { type: "disabled" } },
+    { id: "claude-haiku-4-5", label: "Haiku 4.5", thinking: null }
+  ];
+
+  var SYSTEM = [
+    "You are a generative UI engine running inside a pan/zoom canvas in the user's web browser.",
+    "When the user asks for something, you build small interactive \"app windows\" by calling tools. Do the actual work with tool calls, and keep any spoken text to one short sentence of narration.",
+    "",
+    "Tools:",
+    "- create_new_window(title, html): open a new app window on the canvas. The result tells you the window's id.",
+    "- set_window_html(id, html): replace the ENTIRE contents of an existing window (use when the layout changes or when the new content needs its own <script>).",
+    "- dom_replace(id, selector, html): replace the innerHTML of the first element matching a CSS selector inside a window. Use for small state updates (a score, a result). Note: <script> tags inserted this way do NOT execute — if new content needs script, use set_window_html.",
+    "",
+    "Rules for the HTML you generate:",
+    "- It renders in a sandboxed iframe with NO access to the parent page, network, localStorage, cookies, or the API key. Keep every app fully self-contained: inline <style> and <script> only. Never use external URLs, fetch, XHR, imports, or CDN links — they will fail.",
+    "- To make an element interactive, add a data-genui attribute naming the action, e.g. <button data-genui=\"roll\">Roll</button>, or put data-genui on a <form>. When the user clicks such an element or submits such a form, you receive a message naming the action plus the current values of every input in that window. Respond by updating the window with a tool call.",
+    "- Event handling via data-genui works even after dom_replace (the canvas delegates events), so you do not need to re-wire listeners for replaced markup.",
+    "- Make apps legible and attractive. Assume a warm light \"paper\" aesthetic by default, but theme each app to its purpose. Size content to fit a ~340x300 window; the user can resize.",
+    "",
+    "Prefer one window per distinct app. Reuse and update existing windows across turns rather than spawning duplicates."
+  ].join("\n");
+
+  var TOOLS = [
+    {
+      name: "create_new_window",
+      description: "Open a new interactive app window on the canvas, rendering the given self-contained HTML in a sandboxed iframe. Returns the new window's id.",
+      input_schema: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Short window title shown in the title bar." },
+          html: { type: "string", description: "Self-contained HTML for the app body (inline <style>/<script> only, no external resources)." }
+        },
+        required: ["title", "html"]
+      }
+    },
+    {
+      name: "set_window_html",
+      description: "Replace the entire contents of an existing window with new self-contained HTML. Reloads the window's iframe.",
+      input_schema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The window id (e.g. win-2)." },
+          html: { type: "string", description: "New self-contained HTML for the whole window body." }
+        },
+        required: ["id", "html"]
+      }
+    },
+    {
+      name: "dom_replace",
+      description: "Replace the innerHTML of the first element matching a CSS selector inside an existing window. Cheaper than rewriting the whole window. Injected <script> will not execute.",
+      input_schema: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The window id." },
+          selector: { type: "string", description: "A CSS selector for the target element inside the window." },
+          html: { type: "string", description: "HTML to place inside the matched element." }
+        },
+        required: ["id", "selector", "html"]
+      }
+    }
+  ];
+
+  // ---------- state ----------
+  var apiKey = null;
+  var currentModelId = null;
+  var messages = [];
+  var windows = [];   // { id, title, x, y, w, h, iframe, el, ready, queue: [] }
+  var winSeq = 0;
+  var busy = false;
+  var pendingUser = [];
+  var abortCtl = null;
+  var spawnN = 0;
+
+  // canvas transform
+  var view = { x: 40, y: 40, z: 1 };
+  var focusedWin = null;
+
+  // ---------- element refs ----------
+  var $ = function (id) { return document.getElementById(id); };
+  var canvasEl = $("canvas"), worldEl = $("world"), emptyEl = $("empty");
+  var logEl = $("log"), statusEl = $("statusline");
+  var composerEl = $("composer"), sendBtn = $("send");
+  var modelSel = $("model"), keystatBtn = $("keystat"), keystatLabel = $("keystat-label");
+
+  // ================= key + model =================
+  function loadKey() {
+    try { apiKey = localStorage.getItem(KEY_STORE) || null; } catch (e) { apiKey = null; }
+    renderKeyStatus();
+  }
+  function saveKey(k) {
+    apiKey = k;
+    try { localStorage.setItem(KEY_STORE, k); } catch (e) {}
+    renderKeyStatus();
+  }
+  function forgetKey() {
+    apiKey = null;
+    try { localStorage.removeItem(KEY_STORE); } catch (e) {}
+    renderKeyStatus();
+  }
+  function renderKeyStatus() {
+    var has = !!apiKey;
+    keystatBtn.classList.toggle("ok", has);
+    if (has) {
+      var tail = apiKey.length > 6 ? apiKey.slice(-4) : "";
+      keystatLabel.textContent = "key ·" + tail;
+    } else {
+      keystatLabel.textContent = "no key";
+    }
+  }
+
+  function initModels() {
+    var saved = null;
+    try { saved = localStorage.getItem(MODEL_STORE); } catch (e) {}
+    MODELS.forEach(function (m) {
+      var o = document.createElement("option");
+      o.value = m.id; o.textContent = m.label;
+      modelSel.appendChild(o);
+    });
+    currentModelId = MODELS.some(function (m) { return m.id === saved; }) ? saved : MODELS[0].id;
+    modelSel.value = currentModelId;
+  }
+  function currentModel() {
+    for (var i = 0; i < MODELS.length; i++) if (MODELS[i].id === currentModelId) return MODELS[i];
+    return MODELS[0];
+  }
+  modelSel.addEventListener("change", function () {
+    currentModelId = modelSel.value;
+    try { localStorage.setItem(MODEL_STORE, currentModelId); } catch (e) {}
+    log("sys", "Model set to " + currentModel().label + ".");
+  });
+
+  // ================= canvas transform =================
+  function applyView() {
+    worldEl.style.transform = "translate(" + view.x + "px," + view.y + "px) scale(" + view.z + ")";
+  }
+  function zoomAt(cx, cy, factor) {
+    var nz = Math.min(2.2, Math.max(0.25, view.z * factor));
+    var k = nz / view.z;
+    // keep the point under the cursor stable
+    view.x = cx - (cx - view.x) * k;
+    view.y = cy - (cy - view.y) * k;
+    view.z = nz;
+    applyView();
+  }
+  canvasEl.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    var r = canvasEl.getBoundingClientRect();
+    var factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    zoomAt(e.clientX - r.left, e.clientY - r.top, factor);
+  }, { passive: false });
+
+  // pan by dragging background
+  var pan = null;
+  canvasEl.addEventListener("pointerdown", function (e) {
+    if (e.target !== canvasEl && e.target !== worldEl && e.target !== emptyEl && !emptyEl.contains(e.target)) return;
+    pan = { px: e.clientX, py: e.clientY, ox: view.x, oy: view.y };
+    canvasEl.classList.add("panning");
+    canvasEl.setPointerCapture(e.pointerId);
+  });
+  canvasEl.addEventListener("pointermove", function (e) {
+    if (!pan) return;
+    view.x = pan.ox + (e.clientX - pan.px);
+    view.y = pan.oy + (e.clientY - pan.py);
+    applyView();
+  });
+  function endPan(e) {
+    if (!pan) return;
+    pan = null; canvasEl.classList.remove("panning");
+    try { canvasEl.releasePointerCapture(e.pointerId); } catch (_) {}
+  }
+  canvasEl.addEventListener("pointerup", endPan);
+  canvasEl.addEventListener("pointercancel", endPan);
+
+  $("zoom-in").addEventListener("click", function () { var r = canvasEl.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.15); });
+  $("zoom-out").addEventListener("click", function () { var r = canvasEl.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1 / 1.15); });
+  $("zoom-reset").addEventListener("click", function () { view = { x: 40, y: 40, z: 1 }; applyView(); });
+
+  // ================= iframe bridge (runs INSIDE each sandboxed window) =================
+  function iframeBridge() {
+    var WID = window.__WID;
+    function post(p) { p.__genui = true; p.wid = WID; try { parent.postMessage(p, "*"); } catch (e) {} }
+    function snapshot() {
+      var out = {}, els = document.querySelectorAll("input,select,textarea");
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i], key = el.name || el.id;
+        if (!key) continue;
+        if (el.type === "checkbox" || el.type === "radio") { if (el.checked) out[key] = el.value || true; }
+        else out[key] = el.value;
+      }
+      return out;
+    }
+    function label(el) {
+      var d = el.getAttribute && el.getAttribute("data-genui");
+      return ((d || el.textContent || "") + "").replace(/\s+/g, " ").trim().slice(0, 120);
+    }
+    document.addEventListener("click", function (e) {
+      var el = e.target && e.target.closest ? e.target.closest("[data-genui]") : null;
+      if (!el || el.tagName === "FORM") return;
+      post({ type: "interaction", event: "click", action: el.getAttribute("data-genui") || label(el), label: label(el), inputs: snapshot() });
+    }, true);
+    document.addEventListener("submit", function (e) {
+      var f = e.target;
+      if (f && f.hasAttribute && f.hasAttribute("data-genui")) e.preventDefault();
+      post({ type: "interaction", event: "submit", action: (f.getAttribute && f.getAttribute("data-genui")) || "submit", label: "submit", inputs: snapshot() });
+    }, true);
+    window.addEventListener("message", function (e) {
+      var m = e.data;
+      if (!m || m.__genui_cmd !== true) return;
+      if (m.cmd === "dom_replace") {
+        try {
+          var t = document.querySelector(m.selector);
+          if (t) { t.innerHTML = m.html; }
+          post({ type: "cmd_result", cmd: "dom_replace", ok: !!t });
+        } catch (err) { post({ type: "cmd_result", cmd: "dom_replace", ok: false, error: String(err) }); }
+      }
+    });
+    post({ type: "ready" });
+  }
+  var BRIDGE_SRC = "(" + iframeBridge.toString() + ")();";
+
+  var IFRAME_RESET =
+    "<style>*{box-sizing:border-box}html,body{margin:0}body{font:14px/1.5 ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1c1b17;background:#fbf9f4;padding:12px}button{font:inherit;cursor:pointer}</style>";
+
+  function buildSrcdoc(id, bodyHtml) {
+    return "<!doctype html><html><head><meta charset='utf-8'>" + IFRAME_RESET + "</head><body>" +
+      (bodyHtml || "") +
+      "<script>window.__WID=" + JSON.stringify(id) + ";" + BRIDGE_SRC + "<\/script></body></html>";
+  }
+
+  // ================= windows =================
+  function getWin(id) {
+    for (var i = 0; i < windows.length; i++) if (windows[i].id === id) return windows[i];
+    return null;
+  }
+  function updateEmpty() { emptyEl.style.display = windows.length ? "none" : "flex"; }
+
+  function focusWindow(w) {
+    if (focusedWin === w) return;
+    if (focusedWin) focusedWin.el.classList.remove("focused");
+    focusedWin = w;
+    if (w) {
+      w.el.classList.add("focused");
+      // bring to front
+      var maxZ = 0;
+      windows.forEach(function (o) { maxZ = Math.max(maxZ, parseInt(o.el.style.zIndex || "1", 10)); });
+      w.el.style.zIndex = String(maxZ + 1);
+    }
+  }
+
+  function createWindow(title, html) {
+    winSeq += 1;
+    var id = "win-" + winSeq;
+    var w = {
+      id: id, title: title || "Untitled",
+      x: 40 + (spawnN % 5) * 46, y: 40 + (spawnN % 5) * 40,
+      w: 340, h: 300, ready: false, queue: [], iframe: null, el: null
+    };
+    spawnN += 1;
+
+    var el = document.createElement("div");
+    el.className = "pane";
+    el.style.left = w.x + "px"; el.style.top = w.y + "px";
+    el.style.width = w.w + "px"; el.style.zIndex = "1";
+
+    var bar = document.createElement("div");
+    bar.className = "pane-bar";
+    var t = document.createElement("span"); t.className = "pane-title"; t.textContent = w.title;
+    var idn = document.createElement("span"); idn.className = "pane-id"; idn.textContent = id;
+    var x = document.createElement("button"); x.className = "pane-x"; x.setAttribute("aria-label", "Close window"); x.textContent = "×";
+    bar.appendChild(t); bar.appendChild(idn); bar.appendChild(x);
+
+    var body = document.createElement("div");
+    body.className = "pane-body"; body.style.height = w.h + "px";
+    var iframe = document.createElement("iframe");
+    iframe.setAttribute("sandbox", "allow-scripts");   // no allow-same-origin: opaque origin, cannot reach parent/key
+    iframe.setAttribute("title", w.title);
+    iframe.srcdoc = buildSrcdoc(id, html);
+    body.appendChild(iframe);
+
+    var rs = document.createElement("div"); rs.className = "pane-resize";
+    body.appendChild(rs);
+
+    el.appendChild(bar); el.appendChild(body);
+    worldEl.appendChild(el);
+
+    w.iframe = iframe; w.el = el; w.titleEl = t; w.bodyEl = body;
+    windows.push(w);
+    updateEmpty();
+    focusWindow(w);
+
+    el.addEventListener("pointerdown", function () { focusWindow(w); }, true);
+    x.addEventListener("click", function (e) { e.stopPropagation(); closeWindow(w); });
+    enableDrag(w, bar);
+    enableResize(w, rs);
+    return id;
+  }
+
+  function closeWindow(w) {
+    var i = windows.indexOf(w);
+    if (i >= 0) windows.splice(i, 1);
+    if (w.el && w.el.parentNode) w.el.parentNode.removeChild(w.el);
+    if (focusedWin === w) focusedWin = null;
+    updateEmpty();
+    log("sys", "Closed " + w.id + ".");
+  }
+
+  function setWindowHtml(w, html) {
+    w.ready = false; w.queue = [];
+    w.iframe.srcdoc = buildSrcdoc(w.id, html);
+  }
+
+  function domReplace(w, selector, html) {
+    var cmd = { __genui_cmd: true, cmd: "dom_replace", selector: selector, html: html };
+    if (w.ready && w.iframe.contentWindow) {
+      w.iframe.contentWindow.postMessage(cmd, "*");
+    } else {
+      w.queue.push(cmd);
+    }
+  }
+
+  function enableDrag(w, handle) {
+    var drag = null;
+    handle.addEventListener("pointerdown", function (e) {
+      if (e.target.classList.contains("pane-x")) return;
+      drag = { px: e.clientX, py: e.clientY, ox: w.x, oy: w.y };
+      w.el.classList.add("dragging");
+      handle.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+    });
+    handle.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      w.x = drag.ox + (e.clientX - drag.px) / view.z;
+      w.y = drag.oy + (e.clientY - drag.py) / view.z;
+      w.el.style.left = w.x + "px"; w.el.style.top = w.y + "px";
+    });
+    function up(e) {
+      if (!drag) return; drag = null; w.el.classList.remove("dragging");
+      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  }
+
+  function enableResize(w, handle) {
+    var rz = null;
+    handle.addEventListener("pointerdown", function (e) {
+      rz = { px: e.clientX, py: e.clientY, ow: w.w, oh: w.h };
+      handle.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+    });
+    handle.addEventListener("pointermove", function (e) {
+      if (!rz) return;
+      w.w = Math.max(200, rz.ow + (e.clientX - rz.px) / view.z);
+      w.h = Math.max(140, rz.oh + (e.clientY - rz.py) / view.z);
+      w.el.style.width = w.w + "px"; w.bodyEl.style.height = w.h + "px";
+    });
+    function up(e) { if (!rz) return; rz = null; try { handle.releasePointerCapture(e.pointerId); } catch (_) {} }
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  }
+
+  // ================= inbound postMessage from iframes =================
+  window.addEventListener("message", function (e) {
+    var m = e.data;
+    if (!m || m.__genui !== true) return;
+    // validate: source must be one of our known iframes
+    var w = null;
+    for (var i = 0; i < windows.length; i++) {
+      if (windows[i].iframe && windows[i].iframe.contentWindow === e.source) { w = windows[i]; break; }
+    }
+    if (!w) return;
+
+    if (m.type === "ready") {
+      w.ready = true;
+      while (w.queue.length && w.iframe.contentWindow) {
+        w.iframe.contentWindow.postMessage(w.queue.shift(), "*");
+      }
+      return;
+    }
+    if (m.type === "interaction") {
+      var verb = m.event === "submit" ? "submitted a form" : ("clicked \"" + (m.label || m.action) + "\"");
+      var inputs = (m.inputs && Object.keys(m.inputs).length) ? " Current inputs: " + JSON.stringify(m.inputs) + "." : "";
+      var text = "[Window " + w.id + " — \"" + w.title + "\"] The user " + verb + "." + inputs +
+        " Respond by updating the app with a tool call.";
+      log("you", verb.charAt(0).toUpperCase() + verb.slice(1) + " in " + w.id + ".");
+      submitUser(text);
+      return;
+    }
+    // cmd_result: quiet ack, nothing needed
+  });
+
+  // ================= activity log =================
+  function log(kind, text) {
+    var line = document.createElement("div");
+    line.className = "line " + kind;
+    var tag = document.createElement("span"); tag.className = "tag";
+    tag.textContent = kind === "you" ? "you" : kind === "claude" ? "claude" : kind === "tool" ? "tool" : kind === "err" ? "error" : "·";
+    var msg = document.createElement("span"); msg.className = "msg"; msg.textContent = text;
+    line.appendChild(tag); line.appendChild(msg);
+    logEl.appendChild(line);
+    logEl.scrollTop = logEl.scrollHeight;
+    return msg;
+  }
+  function setStatus(html) { statusEl.innerHTML = html; }
+
+  // ================= tool execution =================
+  function execTool(name, input) {
+    try {
+      if (name === "create_new_window") {
+        var id = createWindow(input.title, input.html);
+        log("tool", "create_new_window → " + id + " (“" + (input.title || "Untitled") + "”)");
+        return { content: "Created window " + id + " titled \"" + (input.title || "Untitled") + "\"." };
+      }
+      if (name === "set_window_html") {
+        var w1 = getWin(input.id);
+        if (!w1) return errResult("No window with id " + input.id + ".");
+        setWindowHtml(w1, input.html || "");
+        log("tool", "set_window_html → " + input.id);
+        return { content: "Replaced the contents of window " + input.id + "." };
+      }
+      if (name === "dom_replace") {
+        var w2 = getWin(input.id);
+        if (!w2) return errResult("No window with id " + input.id + ".");
+        domReplace(w2, input.selector, input.html || "");
+        log("tool", "dom_replace → " + input.id + " " + input.selector);
+        return { content: "Applied dom_replace to \"" + input.selector + "\" in window " + input.id + "." };
+      }
+      return errResult("Unknown tool: " + name);
+    } catch (e) {
+      return errResult("Tool error: " + String(e && e.message ? e.message : e));
+    }
+  }
+  function errResult(msg) { log("err", msg); return { content: msg, is_error: true }; }
+
+  // ================= streaming API call =================
+  function ApiError(status, body) { this.status = status; this.body = body; }
+  function friendlyError(err) {
+    if (err instanceof ApiError) {
+      var msg = err.body && err.body.error && err.body.error.message ? err.body.error.message : "";
+      if (err.status === 401) return "API key rejected (401). Open the key panel and re-enter a valid key.";
+      if (err.status === 403) return "Access denied (403). This key may not have access to " + currentModel().label + ".";
+      if (err.status === 404) return "Not found (404). " + (msg || "The model id may be unavailable to this key.");
+      if (err.status === 429) return "Rate limited (429). Wait a moment, then try again.";
+      if (err.status === 400) return "Request rejected (400). " + (msg || "");
+      if (err.status >= 500) return "Anthropic service error (" + err.status + "). Retry shortly.";
+      return "API error " + err.status + (msg ? ": " + msg : "");
+    }
+    if (err && err.name === "AbortError") return "Stopped.";
+    return "Network error: " + String(err && err.message ? err.message : err) +
+      " (a browser extension or ad-blocker can block api.anthropic.com).";
+  }
+
+  function finalizeBlocks(blocks) {
+    var out = [];
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      if (!b) continue;
+      if (b.type === "text") {
+        if (b.text && b.text.trim()) out.push({ type: "text", text: b.text });
+      } else if (b.type === "tool_use") {
+        var input = {};
+        if (b._json && b._json.trim()) { try { input = JSON.parse(b._json); } catch (e) { input = {}; } }
+        out.push({ type: "tool_use", id: b.id, name: b.name, input: input });
+      }
+    }
+    return out;
+  }
+
+  function streamMessage(onText) {
+    var model = currentModel();
+    var body = {
+      model: model.id,
+      max_tokens: 16000,
+      system: SYSTEM,
+      messages: messages,
+      tools: TOOLS,
+      stream: true
+    };
+    if (model.thinking) body.thinking = model.thinking;
+
+    abortCtl = new AbortController();
+    return fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify(body),
+      signal: abortCtl.signal
+    }).then(function (resp) {
+      if (!resp.ok) {
+        return resp.json().catch(function () { return null; }).then(function (j) {
+          throw new ApiError(resp.status, j);
+        });
+      }
+      var reader = resp.body.getReader();
+      var dec = new TextDecoder();
+      var buf = "";
+      var blocks = [];
+      var stop_reason = null;
+
+      function handleEvent(dataStr) {
+        var evt;
+        try { evt = JSON.parse(dataStr); } catch (e) { return; }
+        switch (evt.type) {
+          case "content_block_start":
+            var cb = evt.content_block || {};
+            if (cb.type === "text") blocks[evt.index] = { type: "text", text: "" };
+            else if (cb.type === "tool_use") blocks[evt.index] = { type: "tool_use", id: cb.id, name: cb.name, _json: "" };
+            else blocks[evt.index] = { type: cb.type || "other" };
+            break;
+          case "content_block_delta":
+            var d = evt.delta || {}, blk = blocks[evt.index];
+            if (!blk) break;
+            if (d.type === "text_delta") { blk.text = (blk.text || "") + d.text; if (onText) onText(d.text); }
+            else if (d.type === "input_json_delta") { blk._json = (blk._json || "") + (d.partial_json || ""); }
+            break;
+          case "message_delta":
+            if (evt.delta && evt.delta.stop_reason) stop_reason = evt.delta.stop_reason;
+            break;
+          case "error":
+            throw new ApiError((evt.error && evt.error.status) || 0, evt);
+        }
+      }
+
+      function pump() {
+        return reader.read().then(function (res) {
+          if (res.done) return { content: finalizeBlocks(blocks), stop_reason: stop_reason };
+          buf += dec.decode(res.value, { stream: true });
+          var idx;
+          while ((idx = buf.indexOf("\n")) >= 0) {
+            var line = buf.slice(0, idx); buf = buf.slice(idx + 1);
+            line = line.replace(/\r$/, "");
+            if (line.indexOf("data:") === 0) {
+              var payload = line.slice(5).trim();
+              if (payload && payload !== "[DONE]") handleEvent(payload);
+            }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    });
+  }
+
+  // ================= turn loop =================
+  function submitUser(text) {
+    pendingUser.push(text);
+    if (!busy) drainPending();
+  }
+  function drainPending() {
+    if (busy || pendingUser.length === 0) return;
+    var text = pendingUser.join("\n");
+    pendingUser = [];
+    messages.push({ role: "user", content: [{ type: "text", text: text }] });
+    runTurn();
+  }
+
+  function runTurn() {
+    busy = true;
+    setSending(true);
+    var rounds = 0;
+
+    function step() {
+      rounds += 1;
+      if (rounds > MAX_TOOL_ROUNDS) {
+        log("err", "Stopped after " + MAX_TOOL_ROUNDS + " tool rounds to avoid a loop.");
+        return finish();
+      }
+      setStatus("<span class='spin'>◜</span> " + currentModel().label + " is thinking…");
+      var narration = null;
+      return streamMessage(function (t) {
+        if (!narration) narration = log("claude", "");
+        narration.textContent += t;
+        logEl.scrollTop = logEl.scrollHeight;
+      }).then(function (res) {
+        messages.push({ role: "assistant", content: res.content });
+        var toolUses = res.content.filter(function (b) { return b.type === "tool_use"; });
+        if (res.stop_reason !== "tool_use" || toolUses.length === 0) {
+          return finish();
+        }
+        setStatus("Running " + toolUses.length + " tool call" + (toolUses.length > 1 ? "s" : "") + "…");
+        var results = toolUses.map(function (b) {
+          var r = execTool(b.name, b.input);
+          return { type: "tool_result", tool_use_id: b.id, content: r.content, is_error: !!r.is_error };
+        });
+        messages.push({ role: "user", content: results });
+        return step();
+      });
+    }
+
+    function finish() { busy = false; setSending(false); setStatus(""); drainPending(); }
+
+    step().catch(function (err) {
+      log("err", friendlyError(err));
+      setStatus("");
+      // roll back the trailing assistant/tool state so the conversation stays valid
+      if (messages.length && messages[messages.length - 1].role === "assistant") {
+        // keep it; assistant turns are valid to retain
+      }
+      if (err instanceof ApiError && err.status === 401) openKeyModal();
+      busy = false; setSending(false); drainPending();
+    });
+  }
+
+  function setSending(on) {
+    if (on) {
+      sendBtn.textContent = "Stop";
+      sendBtn.classList.add("stop");
+      sendBtn.disabled = false;
+    } else {
+      sendBtn.textContent = "Build";
+      sendBtn.classList.remove("stop");
+      sendBtn.disabled = false;
+    }
+  }
+
+  // ================= composer =================
+  function send() {
+    if (busy) { if (abortCtl) abortCtl.abort(); return; }
+    var text = composerEl.value.trim();
+    if (!text) return;
+    if (!apiKey) { openKeyModal(); return; }
+    composerEl.value = "";
+    autosize();
+    log("you", text);
+    submitUser(text);
+  }
+  sendBtn.addEventListener("click", send);
+  composerEl.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); send(); }
+  });
+  function autosize() {
+    composerEl.style.height = "auto";
+    composerEl.style.height = Math.min(128, composerEl.scrollHeight) + "px";
+  }
+  composerEl.addEventListener("input", autosize);
+
+  // ================= modals =================
+  function openKeyModal() {
+    $("key-input").value = apiKey || "";
+    $("key-err").textContent = "";
+    $("key-scrim").classList.add("open");
+    setTimeout(function () { $("key-input").focus(); }, 30);
+  }
+  function closeKeyModal() { $("key-scrim").classList.remove("open"); }
+  keystatBtn.addEventListener("click", openKeyModal);
+  $("key-save").addEventListener("click", function () {
+    var v = $("key-input").value.trim();
+    if (!v) { $("key-err").textContent = "Enter a key, or use Forget key to clear it."; return; }
+    if (v.indexOf("sk-ant-") !== 0) {
+      $("key-err").textContent = "That doesn't look like an Anthropic key (they start with sk-ant-). Saving anyway is allowed, but check it if calls fail.";
+    }
+    saveKey(v);
+    closeKeyModal();
+    log("sys", "Key saved locally.");
+  });
+  $("key-forget").addEventListener("click", function () {
+    forgetKey();
+    $("key-input").value = "";
+    $("key-err").textContent = "";
+    log("sys", "Key forgotten (removed from this browser).");
+  });
+  $("help-btn").addEventListener("click", function () { $("help-scrim").classList.add("open"); });
+  $("help-close").addEventListener("click", function () { $("help-scrim").classList.remove("open"); });
+  // click-scrim-to-close + Esc
+  [["key-scrim", closeKeyModal], ["help-scrim", function () { $("help-scrim").classList.remove("open"); }]].forEach(function (pair) {
+    $(pair[0]).addEventListener("click", function (e) { if (e.target === $(pair[0])) pair[1](); });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { closeKeyModal(); $("help-scrim").classList.remove("open"); }
+  });
+
+  // ================= boot =================
+  loadKey();
+  initModels();
+  applyView();
+  autosize();
+  updateEmpty();
+  if (!apiKey) {
+    log("sys", "Bring your own Anthropic key to start — it stays in your browser. Click “no key” above.");
+  } else {
+    log("sys", "Ready. Describe an app to build.");
+  }
+})();
+</script>
+</body>
+</html>
