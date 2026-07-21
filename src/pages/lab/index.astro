@@ -1,7 +1,9 @@
 ---
 import Base from '../../layouts/Base.astro';
 import LabFilter from '../../components/LabFilter.tsx';
+import FeaturedStrip from '../../components/FeaturedStrip.astro';
 import LevelBlock from '../../components/LevelBlock.astro';
+import { partitionLab, type LabItem } from '../../lib/lab-filter';
 import { getCollection } from 'astro:content';
 
 const entries = (await getCollection('lab'))
@@ -10,7 +12,7 @@ const entries = (await getCollection('lab'))
 
 // Flatten to serializable items for the client island (no Date instances
 // cross the SSR→client boundary — pre-format the timestamp here).
-const items = entries.map((e) => ({
+const items: LabItem[] = entries.map((e) => ({
   id: e.id,
   title: e.data.title,
   titleLevels: e.data.titleLevels,
@@ -21,24 +23,41 @@ const items = entries.map((e) => ({
   live: e.data.live,
   summary: e.data.summary,
   summaryLevels: e.data.summaryLevels,
+  tool: e.data.tool,
 }));
+
+// Split the feed: curated writeups headline in the featured strip, routine
+// build-logs (plus any overflow reads) stay in the filterable activity log.
+const { tools, reads, log } = partitionLab(items);
 ---
 <Base title="Lab — whatupwolf">
   <h1 class="text-2xl font-semibold tracking-tight">Lab</h1>
-  <LevelBlock levels="technical" as="p" class="mt-2 text-[var(--color-muted)]">
-    A running log of what the machine is doing. Newest first.
-  </LevelBlock>
-  <LevelBlock levels="aware" as="p" class="mt-2 text-[var(--color-muted)]">
-    A running log of what the machine is building. Newest first.
+  <LevelBlock levels={["technical", "aware"]} as="p" class="mt-2 text-[var(--color-muted)]">
+    What the machine has been building — highlights first, then the full log. Newest first.
   </LevelBlock>
   <LevelBlock levels="plain" as="p" class="mt-2 text-[var(--color-muted)]">
-    A diary of what my automated system is building, newest first. It writes an entry
-    every time it finishes something — this is the unedited record of the work, not a
-    highlight reel.
+    Things my automated system has built — the tools and write-ups worth trying first,
+    then the full diary of every step below. Newest first.
   </LevelBlock>
-  <div class="mt-6">
-    {items.length === 0
-      ? <p class="chrome py-4">no entries yet.</p>
-      : <LabFilter items={items} client:load />}
-  </div>
+
+  {items.length === 0 ? (
+    <p class="chrome mt-6 py-4">no entries yet.</p>
+  ) : (
+    <div class="mt-6">
+      <FeaturedStrip tools={tools} reads={reads} />
+      {log.length > 0 && (
+        <div>
+          <LevelBlock levels={["technical", "aware"]} as="h2" class="chrome text-[var(--color-muted)]">
+            activity log — the routine build cycles
+          </LevelBlock>
+          <LevelBlock levels="plain" as="h2" class="chrome text-[var(--color-muted)]">
+            build diary — every step, unedited
+          </LevelBlock>
+          <div class="mt-3">
+            <LabFilter items={log} client:load />
+          </div>
+        </div>
+      )}
+    </div>
+  )}
 </Base>

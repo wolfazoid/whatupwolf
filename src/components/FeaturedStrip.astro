@@ -1,0 +1,63 @@
+---
+// The curated highlights at the top of /lab: interactive tools (a "try it"
+// deep-link) and recent reads (digests / briefings / monitors), above the
+// routine activity log. Static — no interactivity, so no island. The page has
+// already split the feed with partitionLab(); this only renders the two groups.
+import LevelText from './LevelText.astro';
+import type { LabItem } from '../lib/lab-filter';
+
+interface Props {
+  tools: LabItem[];
+  reads: LabItem[];
+}
+
+const { tools, reads } = Astro.props;
+const hasFeatured = tools.length > 0 || reads.length > 0;
+
+// A featured card: a level-aware title linking to the writeup, the summary, and
+// a call to action. Tools get a "try it" deep-link to the tool itself; reads
+// point back to the writeup. `cta`/`href` differ per group; everything else is
+// shared, so the markup lives in one place.
+const groups = [
+  { key: 'tools', label: 'Try it', items: tools, cta: 'Try it →', href: (i: LabItem) => i.tool! },
+  { key: 'reads', label: 'Reads', items: reads, cta: 'Read →', href: (i: LabItem) => `/lab/${i.id}` },
+] as const;
+---
+{hasFeatured && (
+  <section
+    aria-label="Featured tools and experiments"
+    class="mb-8 border-b border-[var(--color-line)] pb-6"
+  >
+    <h2 class="chrome text-[var(--color-accent)]">★ tools &amp; experiments</h2>
+
+    {groups.map((group) =>
+      group.items.length > 0 ? (
+        <div class="mt-3">
+          <h3 class="chrome text-[var(--color-muted)]">{group.label}</h3>
+          {group.items.map((e) => (
+            <div class="border-t border-[var(--color-line)] py-3 first:border-t-0">
+              <div class="chrome flex items-center gap-2">
+                {e.live && <span class="live-dot" title="live — just updated" />}
+                <span>{e.ts}</span>
+                <span class="text-[var(--color-accent)]">[{e.type}]</span>
+                <span>status: {e.status}</span>
+              </div>
+              <h4 class="mt-1 font-semibold tracking-tight">
+                <a href={`/lab/${e.id}`} class="transition-colors hover:!text-[var(--color-accent)]">
+                  <LevelText technical={e.title} {...e.titleLevels} />
+                </a>
+              </h4>
+              <p class="mt-1 text-sm leading-relaxed text-[var(--color-muted)]">
+                <LevelText technical={e.summary} {...e.summaryLevels} />
+              </p>
+              <a
+                href={group.href(e)}
+                class="chrome mt-2 inline-block !text-[var(--color-accent)] hover:underline underline-offset-4"
+              >{group.cta}</a>
+            </div>
+          ))}
+        </div>
+      ) : null,
+    )}
+  </section>
+)}

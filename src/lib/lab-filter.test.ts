@@ -6,6 +6,9 @@ import {
   isFiltered,
   tagFacets,
   typeFacets,
+  isFeatured,
+  partitionLab,
+  DEFAULT_READS_CAP,
   type LabItem,
 } from './lab-filter';
 
@@ -157,5 +160,74 @@ describe('describeQuery', () => {
     expect(describeQuery({ tag: 'ux', type: 'build', search: 'cook' })).toBe('type build + #ux + "cook"');
     expect(describeQuery({ ...EMPTY_QUERY, tag: 'ux' })).toBe('#ux');
     expect(describeQuery(EMPTY_QUERY)).toBe('');
+  });
+});
+
+describe('isFeatured', () => {
+  it('features an entry that ships an interactive tool', () => {
+    expect(isFeatured(item({ id: 't', type: 'experiment', tool: '/tools/x.html' }))).toBe(true);
+  });
+  it('features curated read types (digest / briefing / monitor)', () => {
+    for (const type of ['digest', 'briefing', 'monitor']) {
+      expect(isFeatured(item({ id: type, type }))).toBe(true);
+    }
+  });
+  it('does NOT feature a routine build-log (experiment, no tool)', () => {
+    expect(isFeatured(item({ id: 'r', type: 'experiment' }))).toBe(false);
+  });
+  it('does NOT feature a plain note', () => {
+    expect(isFeatured(item({ id: 'n', type: 'note' }))).toBe(false);
+  });
+});
+
+describe('partitionLab', () => {
+  it('routes tools, reads, and routine build-logs to their buckets', () => {
+    const input = [
+      item({ id: 'tool', type: 'experiment', tool: '/tools/x.html' }),
+      item({ id: 'digest', type: 'digest' }),
+      item({ id: 'cycle', type: 'experiment' }),
+    ];
+    const { tools, reads, log } = partitionLab(input);
+    expect(tools.map((i) => i.id)).toEqual(['tool']);
+    expect(reads.map((i) => i.id)).toEqual(['digest']);
+    expect(log.map((i) => i.id)).toEqual(['cycle']);
+  });
+
+  it('treats a read that also carries a tool link as a tool', () => {
+    const { tools, reads } = partitionLab([item({ id: 'x', type: 'monitor', tool: '/tools/x.html' })]);
+    expect(tools.map((i) => i.id)).toEqual(['x']);
+    expect(reads).toEqual([]);
+  });
+
+  it('caps reads and overflows the older ones into the log, newest kept', () => {
+    // 8 digests, newest-first; cap is default 6.
+    const digests = Array.from({ length: 8 }, (_, i) => item({ id: `d${i}`, type: 'digest' }));
+    const { reads, log } = partitionLab(digests);
+    expect(reads).toHaveLength(DEFAULT_READS_CAP);
+    expect(reads.map((i) => i.id)).toEqual(['d0', 'd1', 'd2', 'd3', 'd4', 'd5']);
+    expect(log.map((i) => i.id)).toEqual(['d6', 'd7']); // overflow, still in order
+  });
+
+  it('never caps tools — they all stay featured', () => {
+    const tools = Array.from({ length: 9 }, (_, i) => item({ id: `t${i}`, tool: `/tools/${i}.html` }));
+    const { tools: featured, log } = partitionLab(tools, { readsCap: 2 });
+    expect(featured).toHaveLength(9);
+    expect(log).toEqual([]);
+  });
+
+  it('preserves newest-first order and interleaves overflow reads into the log', () => {
+    const input = [
+      item({ id: 'cycleA', type: 'experiment' }),
+      item({ id: 'read1', type: 'briefing' }),
+      item({ id: 'cycleB', type: 'experiment' }),
+      item({ id: 'read2', type: 'briefing' }),
+    ];
+    const { reads, log } = partitionLab(input, { readsCap: 1 });
+    expect(reads.map((i) => i.id)).toEqual(['read1']);
+    expect(log.map((i) => i.id)).toEqual(['cycleA', 'cycleB', 'read2']); // overflow read2 kept in place
+  });
+
+  it('handles an empty feed', () => {
+    expect(partitionLab([])).toEqual({ tools: [], reads: [], log: [] });
   });
 });

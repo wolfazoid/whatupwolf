@@ -21,6 +21,9 @@ export interface LabItem {
   live: boolean;
   summary: string;
   summaryLevels?: LevelVariants;
+  /** A "try it" deep-link to the interactive tool this entry ships, when it
+   *  ships one. Present marks the entry as an interactive tool for featuring. */
+  tool?: string;
 }
 
 export interface LabQuery {
@@ -94,4 +97,57 @@ export function describeQuery(query: LabQuery): string {
   if (query.tag) parts.push(`#${query.tag}`);
   if (query.search.trim()) parts.push(`"${query.search.trim()}"`);
   return parts.join(' + ');
+}
+
+// --- Featured strip -------------------------------------------------------
+// The Lab feed mixes two kinds of content: curated writeups (interactive tools,
+// digests, briefings, monitors) worth headlining, and routine engine build-logs
+// (one per cycle). These helpers split the feed so the page can show a featured
+// strip above a secondary activity log.
+
+/** Curated read types — substantial human-facing posts that are not a routine
+ *  engine build-log. Interactive tools are featured via their `tool:` link
+ *  (see isFeatured) rather than by type. */
+export const FEATURED_READ_TYPES = ['digest', 'briefing', 'monitor'] as const;
+
+/** How many recent reads the featured strip holds before the rest overflow into
+ *  the activity log — enough to headline without letting weekly series (Site
+ *  Health, Agent Weekly) bury the tools. Tools are never capped. */
+export const DEFAULT_READS_CAP = 6;
+
+const isReadType = (type: string): boolean =>
+  (FEATURED_READ_TYPES as readonly string[]).includes(type);
+
+/** A featured entry is either an interactive tool (has a "try it" link) or a
+ *  curated read (digest/briefing/monitor). A routine cycle — type `experiment`
+ *  with no tool — is not featured. */
+export function isFeatured(item: LabItem): boolean {
+  return Boolean(item.tool) || isReadType(item.type);
+}
+
+export interface LabPartition {
+  /** Every entry that ships an interactive tool — never capped (small, stable). */
+  tools: LabItem[];
+  /** The most recent `readsCap` curated reads (that aren't already tools). */
+  reads: LabItem[];
+  /** Routine build-logs, plus any reads beyond the cap. */
+  log: LabItem[];
+}
+
+/** Splits the (newest-first) feed into the featured strip and the activity log.
+ *  Each entry lands in exactly one bucket, and input order is preserved within
+ *  each. A read that also carries a `tool:` link is treated as a tool. */
+export function partitionLab(
+  items: LabItem[],
+  { readsCap = DEFAULT_READS_CAP }: { readsCap?: number } = {},
+): LabPartition {
+  const tools: LabItem[] = [];
+  const reads: LabItem[] = [];
+  const log: LabItem[] = [];
+  for (const item of items) {
+    if (item.tool) tools.push(item);
+    else if (isReadType(item.type)) (reads.length < readsCap ? reads : log).push(item);
+    else log.push(item);
+  }
+  return { tools, reads, log };
 }
