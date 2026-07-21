@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   renderLabEntry, parseCycleReport, parsePrivateReport, publicEntryFromReport,
-  draftForType, parseRemoteBranches, uniqueBranchName,
+  draftForType, parseRemoteBranches, uniqueBranchName, lockIsFree,
 } from './lib.mjs';
 import { sanitize } from '../src/lib/sanitize.core.mjs';
 import { publishBranch } from './publish.mjs';
@@ -33,6 +33,7 @@ const EXPERIMENTS_DIR = join(ENGINE_DIR, 'experiments');
 const REPORTS_DIR = join(ENGINE_DIR, 'reports');
 const REPORT = join(ENGINE_DIR, '.experiment-report.json');
 const PAUSED = join(ENGINE_DIR, 'PAUSED');
+const LOCK = join(ENGINE_DIR, '.run.lock');
 const GH_USER = 'wolfazoid';
 const DRY = process.argv.includes('--dry-run');
 const NAME = process.argv.slice(2).find((a) => !a.startsWith('--'));
@@ -46,6 +47,54 @@ function experimentTitle(cfg, day) {
 function sh(cmd, args) {
   if (DRY) { console.log(`[dry-run] ${cmd} ${args.join(' ')}`); return ''; }
   return execFileSync(cmd, args, { cwd: REPO_DIR, encoding: 'utf8' }).trim();
+}
+
+// Liveness probe for the single-instance lock. process.kill(pid, 0) sends no
+// signal — it only asks whether the pid is reachable. ESRCH means the process is
+// gone (a stale lock); EPERM means it exists but we may not signal it (still
+// alive). Any other outcome (no throw) means it's alive.
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+}
+
+// Acquire the single-instance lock by exclusively creating engine/.run.lock
+// (flag 'wx') with our pid, so an overlapping cycle and experiment can't both go
+// on to stomp each other's checkout/branch state. If the file already exists we
+// read it and let lockIsFree judge it: a lock left by a killed run (dead pid, or
+// garbage) is cleared and the create retried; a lock held by a live process
+// makes us back off. Returns a release() to call on every exit path, or null
+// when another run holds the lock. --dry-run takes no lock and has no side
+// effects — it returns a no-op release so the preview neither blocks nor writes
+// the lockfile.
+function acquireLock() {
+  if (DRY) return () => {};
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(LOCK, `${process.pid}\n`, { flag: 'wx' });
+      return releaseLock;
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err;
+      let contents = null;
+      try { contents = readFileSync(LOCK, 'utf8'); } catch { /* vanished between calls — retry */ }
+      if (!lockIsFree(contents, pidAlive)) return null;
+      try { rmSync(LOCK); } catch { /* another run cleared it first — retry */ }
+    }
+  }
+  return null;
+}
+
+// Release the lock, but only if we still own it — compare the recorded pid to
+// ours so we never delete a lock a newer run has since acquired. A missing file
+// is fine (already released). Never throws, so it's safe in a finally.
+function releaseLock() {
+  try {
+    if (Number.parseInt(readFileSync(LOCK, 'utf8').trim(), 10) === process.pid) rmSync(LOCK);
+  } catch { /* already gone */ }
 }
 
 // Returns the working tree to a clean main after a failed run, so a scheduled loop
@@ -124,6 +173,23 @@ async function main() {
     return;
   }
 
+  // 1b. Single-instance lock — acquired after the kill switch and before any
+  // git/network work, so an overlapping cycle and experiment can't corrupt each
+  // other's git state. A live holder makes us exit 0 without touching git; the
+  // finally releases on every exit path, including the outer catch/recover.
+  const release = acquireLock();
+  if (!release) {
+    console.log('another run in progress — exiting');
+    return;
+  }
+  try {
+    await runExperimentLocked(cfg, promptPath);
+  } finally {
+    release();
+  }
+}
+
+async function runExperimentLocked(cfg, promptPath) {
   // 2. Sync main
   sh('git', ['checkout', 'main']);
   sh('git', ['pull', '--ff-only', 'origin', 'main']);

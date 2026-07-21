@@ -18,3 +18,4 @@ engine/cron.log
 engine/cycle.log
 engine/experiment.log
 engine/PAUSED
+engine/.run.lock

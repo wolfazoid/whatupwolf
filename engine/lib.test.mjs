@@ -4,6 +4,7 @@ import { slugify, renderLabEntry, parseCycleReport, parsePrivateReport, resolveS
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { branchForItem, pickBuildableItem, prListArgs } from './lib.mjs';
+import { lockIsFree } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -303,6 +304,30 @@ describe('resolveStatus', () => {
   });
   it('flags when both gates fail', () => {
     expect(resolveStatus('done', false, false)).toBe('flagged');
+  });
+});
+
+describe('lockIsFree', () => {
+  const alive = () => true; // probe: pid is running
+  const dead = () => false; // probe: pid is gone (ESRCH)
+  it('is free when the lockfile is missing (contents null)', () => {
+    // The probe must not even be consulted — a missing file is unconditionally free.
+    expect(lockIsFree(null, () => { throw new Error('probe should not run'); })).toBe(true);
+  });
+  it('is held when the recorded pid is a live process', () => {
+    expect(lockIsFree('4321', alive)).toBe(false);
+    expect(lockIsFree('4321\n', alive)).toBe(false); // trailing newline tolerated
+  });
+  it('is free when the recorded pid is stale (no longer running)', () => {
+    expect(lockIsFree('4321', dead)).toBe(true);
+  });
+  it('is free when the contents are not a positive pid', () => {
+    // A truncated / garbage lockfile must not wedge the loop forever.
+    expect(lockIsFree('', alive)).toBe(true);
+    expect(lockIsFree('   ', alive)).toBe(true);
+    expect(lockIsFree('not-a-pid', alive)).toBe(true);
+    expect(lockIsFree('0', alive)).toBe(true);
+    expect(lockIsFree('-7', alive)).toBe(true);
   });
 });
 
