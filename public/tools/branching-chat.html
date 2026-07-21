@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Branching Canvas Conversation — chat as a tree you can branch</title>
+<meta name="description" content="A bring-your-own-key chat laid out spatially on a canvas. Branch off any message into a parallel thread; each reply uses the path from the root to that node as its context. Toggle between the canvas and a linear view. Your key stays in your browser. One file, no build step.">
+<style>
+  :root {
+    --paper: #f4f1ea;
+    --paper-2: #efeae0;
+    --card: #fbf9f4;
+    --ink: #1c1b17;
+    --ink-dim: #6d6a5f;
+    --line: #ddd7c8;
+    --line-strong: #cbc4b2;
+    --accent: #b8681a;
+    --accent-ink: #fffdf8;
+    --user: #2f6f52;
+    --canvas: #e7e1d3;
+    --canvas-dot: #cfc7b4;
+    --ok: #3f7d3a;
+    --warn: #b23b2e;
+    --edge: #b7ad97;
+    --radius: 12px;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #17150f; --paper-2: #1f1c14; --card: #211e16; --ink: #f4f1ea;
+      --ink-dim: #a29d8f; --line: #38342a; --line-strong: #4a4536;
+      --accent: #ffb454; --accent-ink: #1b1508; --user: #6fd0a0;
+      --canvas: #100e09; --canvas-dot: #2a271d; --edge: #4a4536;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.5 var(--sans);
+    display: flex;
+    flex-direction: column;
+    -webkit-text-size-adjust: 100%;
+    overflow: hidden;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  h1, h2, h3 { margin: 0; line-height: 1.2; }
+  a { color: var(--accent); }
+
+  /* ---------------- masthead + toolbar ---------------- */
+  header.masthead {
+    display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    padding: .55rem .9rem; border-bottom: 1px solid var(--line); background: var(--paper-2);
+  }
+  .brand { display: flex; align-items: baseline; gap: .55rem; }
+  .brand h1 { font-size: 1.02rem; letter-spacing: -.01em; }
+  .brand .kicker {
+    font-family: var(--mono); font-size: .64rem; text-transform: uppercase;
+    letter-spacing: .13em; color: var(--ink-dim);
+  }
+  .toolbar { margin-left: auto; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .keystat {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .04em;
+    display: inline-flex; align-items: center; gap: .4rem;
+    border: 1px solid var(--line); border-radius: 999px; padding: .28rem .6rem; background: var(--card);
+  }
+  .keystat .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--warn); }
+  .keystat.ok .dot { background: var(--ok); }
+  select.model {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .02em;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .3rem .5rem;
+  }
+  .tbtn {
+    font-family: var(--mono); font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .34rem .6rem;
+  }
+  .tbtn:hover { border-color: var(--line-strong); }
+  .tbtn.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+
+  /* ---------------- stage / canvas ---------------- */
+  main { flex: 1; position: relative; min-height: 0; }
+  .stage {
+    position: absolute; inset: 0; overflow: hidden; cursor: grab;
+    background-color: var(--canvas);
+    background-image: radial-gradient(var(--canvas-dot) 1.2px, transparent 1.2px);
+    background-size: 26px 26px;
+    touch-action: none;
+  }
+  .stage.panning { cursor: grabbing; }
+  .stage.hidden { display: none; }
+  .world { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+  .edges { position: absolute; left: 0; top: 0; overflow: visible; width: 0; height: 0; pointer-events: none; }
+  .edges path { fill: none; stroke: var(--edge); stroke-width: 1.6; }
+  .edges path.onpath { stroke: var(--accent); stroke-width: 2.4; }
+
+  /* node card */
+  .node {
+    position: absolute; width: 252px; background: var(--card);
+    border: 1px solid var(--line-strong); border-radius: 12px;
+    box-shadow: 0 8px 26px rgba(20,16,8,.14), 0 1px 4px rgba(20,16,8,.08);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  @media (prefers-color-scheme: dark) { .node { box-shadow: 0 12px 40px rgba(0,0,0,.5); } }
+  .node.onpath { border-color: var(--accent); }
+  .node.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent), 0 8px 26px rgba(20,16,8,.18); }
+  .node-bar {
+    display: flex; align-items: center; gap: .45rem; padding: .38rem .5rem;
+    border-bottom: 1px solid var(--line); background: var(--paper-2); cursor: grab; user-select: none;
+  }
+  .node.dragging .node-bar { cursor: grabbing; }
+  .role {
+    font-family: var(--mono); font-size: .6rem; text-transform: uppercase; letter-spacing: .09em;
+    font-weight: 700; padding: .1rem .35rem; border-radius: 5px;
+  }
+  .role.user { color: var(--user); border: 1px solid var(--user); }
+  .role.assistant { color: var(--accent); border: 1px solid var(--accent); }
+  .node-id { font-family: var(--mono); font-size: .56rem; color: var(--ink-dim); flex: 1; }
+  .branch-btn {
+    border: 1px solid var(--line); background: var(--card); color: var(--ink-dim);
+    font-family: var(--mono); font-size: .58rem; letter-spacing: .04em; text-transform: uppercase;
+    padding: .12rem .38rem; border-radius: 6px;
+  }
+  .branch-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .node-body {
+    padding: .5rem .6rem; font-size: .82rem; line-height: 1.42;
+    white-space: pre-wrap; word-break: break-word; overflow-y: auto;
+    max-height: 168px; min-height: 1.2rem;
+  }
+  .node-body.empty::after { content: "…"; color: var(--ink-dim); }
+  .caret { display: inline-block; width: .5ch; background: var(--accent); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* empty state */
+  .empty {
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: 2rem; pointer-events: none;
+  }
+  .empty .inner { max-width: 32rem; text-align: center; color: var(--ink-dim); font-size: .95rem; }
+  .empty h2 { font-size: 1.15rem; color: var(--ink); margin-bottom: .5rem; letter-spacing: -.01em; }
+  .empty code { font-family: var(--mono); font-size: .84em; background: var(--paper-2); padding: .05rem .3rem; border-radius: 5px; }
+
+  /* view controls */
+  .viewctl { position: absolute; right: .7rem; bottom: .7rem; display: flex; gap: .3rem; z-index: 5; }
+  .viewctl button {
+    font-family: var(--mono); font-size: .8rem; width: 2rem; height: 2rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(20,16,8,.12);
+  }
+  .viewctl button.wide { width: auto; padding: 0 .55rem; font-size: .64rem; text-transform: uppercase; letter-spacing: .06em; }
+  .viewctl button:hover { border-color: var(--line-strong); }
+
+  /* ---------------- linear view ---------------- */
+  .linear {
+    position: absolute; inset: 0; overflow-y: auto; padding: 1.1rem 1rem 1.4rem;
+    background: var(--paper); display: none;
+  }
+  .linear.on { display: block; }
+  .thread { max-width: 46rem; margin: 0 auto; display: flex; flex-direction: column; gap: .7rem; }
+  .bubble { max-width: 84%; border-radius: 12px; padding: .55rem .75rem; border: 1px solid var(--line-strong); position: relative; }
+  .bubble .who {
+    font-family: var(--mono); font-size: .58rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--ink-dim); margin-bottom: .25rem; display: flex; align-items: center; gap: .5rem;
+  }
+  .bubble .txt { white-space: pre-wrap; word-break: break-word; font-size: .92rem; line-height: 1.5; }
+  .bubble.user { align-self: flex-end; background: var(--card); border-color: var(--user); }
+  .bubble.assistant { align-self: flex-start; background: var(--card); }
+  .bubble .lbranch {
+    border: 1px solid var(--line); background: var(--paper-2); color: var(--ink-dim);
+    font-family: var(--mono); font-size: .55rem; text-transform: uppercase; letter-spacing: .05em;
+    padding: .1rem .35rem; border-radius: 5px; margin-left: auto;
+  }
+  .bubble .lbranch:hover { border-color: var(--accent); color: var(--accent); }
+  .linear .siblings { align-self: center; font-family: var(--mono); font-size: .64rem; color: var(--ink-dim); display: flex; gap: .4rem; align-items: center; }
+  .linear .siblings button {
+    border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: .1rem .4rem; font-size: .62rem;
+  }
+  .linear .siblings button:hover { border-color: var(--accent); }
+
+  /* ---------------- statusline ---------------- */
+  .statusline {
+    font-family: var(--mono); font-size: .68rem; color: var(--ink-dim);
+    border-top: 1px solid var(--line); background: var(--paper-2);
+    padding: .3rem .95rem; min-height: 1.4rem; display: flex; align-items: center; gap: .5rem;
+  }
+  .statusline.err { color: var(--warn); }
+  .statusline .spin { display: inline-block; animation: spin 1s steps(8) infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------------- composer ---------------- */
+  .composer {
+    border-top: 1px solid var(--line); background: var(--paper-2);
+    padding: .6rem .9rem calc(.6rem + env(safe-area-inset-bottom)); display: flex; gap: .6rem; align-items: flex-end;
+  }
+  .composer textarea {
+    flex: 1; resize: none; height: 2.7rem; max-height: 8rem; min-height: 2.7rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: .55rem .7rem; line-height: 1.4;
+  }
+  .composer textarea:focus, input:focus, select:focus, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .send {
+    flex: none; background: var(--accent); color: var(--accent-ink); border: 1px solid transparent;
+    border-radius: 10px; padding: 0 1.1rem; height: 2.7rem; font-weight: 650;
+  }
+  .send:disabled { opacity: .5; cursor: default; }
+  .send.stop { background: var(--warn); }
+
+  /* ---------------- modal ---------------- */
+  .scrim {
+    position: fixed; inset: 0; background: rgba(20,16,8,.5); z-index: 50;
+    display: none; align-items: center; justify-content: center; padding: 1rem;
+  }
+  .scrim.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--line-strong); border-radius: 14px;
+    max-width: 34rem; width: 100%; max-height: 90vh; overflow-y: auto;
+    padding: 1.4rem 1.5rem; box-shadow: 0 24px 60px rgba(20,16,8,.35);
+  }
+  .modal h2 { font-size: 1.2rem; margin-bottom: .3rem; letter-spacing: -.01em; }
+  .modal .sub { color: var(--ink-dim); font-size: .9rem; margin-bottom: 1.1rem; }
+  .modal label.field {
+    display: block; font-family: var(--mono); font-size: .68rem; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--ink-dim); margin: .9rem 0 .35rem;
+  }
+  .modal input[type="password"], .modal input[type="text"] {
+    width: 100%; background: var(--paper); border: 1px solid var(--line); border-radius: 9px;
+    padding: .6rem .7rem; font-family: var(--mono); font-size: .82rem;
+  }
+  .trust {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2);
+    padding: .8rem .9rem; margin: 1rem 0 .2rem; font-size: .86rem; color: var(--ink-dim);
+  }
+  .trust strong { color: var(--ink); }
+  .trust ul { margin: .5rem 0 0; padding-left: 1.1rem; }
+  .trust li { margin: .3rem 0; }
+  .modal .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1.2rem; align-items: center; }
+  .btn {
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: .55rem 1rem; font-weight: 600;
+  }
+  .btn:hover { border-color: var(--line-strong); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.danger { color: var(--warn); }
+  .modal .err { color: var(--warn); font-size: .85rem; margin-top: .6rem; min-height: 1rem; }
+  .spacer { flex: 1; }
+  .kbd { font-family: var(--mono); font-size: .78em; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 5px; padding: .05rem .35rem; }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="brand">
+    <h1>Branching Canvas Conversation</h1>
+    <span class="kicker">byo-key · chat as a tree</span>
+  </div>
+  <div class="toolbar">
+    <button class="keystat" id="keystat" title="Manage your API key">
+      <span class="dot"></span><span id="keystat-label">no key</span>
+    </button>
+    <select class="model" id="model" title="Model"></select>
+    <button class="tbtn" id="view-toggle" title="Toggle canvas / linear view">canvas</button>
+    <button class="tbtn" id="help-btn">?</button>
+  </div>
+</header>
+
+<main>
+  <div class="stage" id="stage">
+    <div class="world" id="world">
+      <svg class="edges" id="edges"></svg>
+    </div>
+    <div class="empty" id="empty">
+      <div class="inner">
+        <h2>Start a conversation.</h2>
+        <p>Type below and Claude replies. Each message becomes a node on this canvas. Hit
+        <strong>⑃ branch</strong> on any message — or click a node — to fork a
+        <strong>parallel thread</strong> from that point. The reply always uses the path from the
+        root down to the node you sent from as its context. Toggle to the linear view to read one
+        thread top to bottom.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="linear" id="linear">
+    <div class="thread" id="thread"></div>
+  </div>
+
+  <div class="viewctl" id="viewctl">
+    <button id="zoom-out" title="Zoom out">−</button>
+    <button id="zoom-in" title="Zoom in">+</button>
+    <button class="wide" id="zoom-reset" title="Reset view">reset</button>
+  </div>
+</main>
+
+<div class="statusline" id="statusline"></div>
+
+<div class="composer">
+  <textarea id="composer" placeholder="Message Claude…  (⌘/Ctrl + Enter to send)" spellcheck="false"></textarea>
+  <button class="send" id="send">Send</button>
+</div>
+
+<!-- Key modal -->
+<div class="scrim" id="key-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="key-title">
+    <h2 id="key-title">Your Anthropic API key</h2>
+    <p class="sub">This tool calls Claude directly from your browser. Bring your own key.</p>
+
+    <div class="trust">
+      <strong>Your key stays in your browser. It is never sent to any server of ours.</strong>
+      <ul>
+        <li>It is stored only in this browser's <code>localStorage</code> and sent straight to
+          <code>api.anthropic.com</code> — nowhere else. This site is static; there is no backend to receive it.</li>
+        <li>The whole conversation tree lives in memory for this session only. Nothing is persisted server-side.</li>
+        <li>Clear the key any time with <em>Forget key</em> below.</li>
+      </ul>
+    </div>
+
+    <label class="field" for="key-input">API key (starts with <code>sk-ant-</code>)</label>
+    <input type="password" id="key-input" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+    <p class="err" id="key-err"></p>
+
+    <div class="row">
+      <button class="btn primary" id="key-save">Save key</button>
+      <button class="btn danger" id="key-forget">Forget key</button>
+      <span class="spacer"></span>
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Get a key ↗</a>
+    </div>
+  </div>
+</div>
+
+<!-- Help modal -->
+<div class="scrim" id="help-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <h2 id="help-title">How this works</h2>
+    <p class="sub">A branching-conversation prototype for whatupwolf.com/lab.</p>
+    <div class="trust" style="background:var(--card)">
+      <p>A conversation is usually a straight line. Here it is a <strong>tree</strong>. Every message —
+      yours and Claude's — is a node on the canvas, linked to the one it followed.</p>
+      <ul>
+        <li><strong>Send</strong> a message and it attaches under the currently selected node; Claude's
+          reply attaches under that. The path from the top of the tree down to the node you send from
+          <em>is</em> the context the model sees.</li>
+        <li><strong>Branch</strong> from any message (the <strong>⑃</strong> button, or click a node to
+          select it) and your next message starts a new thread from that point — the original thread is
+          left untouched, so you can explore two answers side by side.</li>
+        <li><strong>Pan</strong> the canvas by dragging the background; <strong>zoom</strong> with the
+          wheel or the +/− controls. Drag a node's bar to move it.</li>
+        <li>Toggle <strong>canvas ⇄ linear</strong> in the toolbar to read the selected thread as an
+          ordinary top-to-bottom chat.</li>
+        <li>Anthropic-only, bring-your-own-key. The key stays in your browser and is sent only to
+          <code>api.anthropic.com</code>.</li>
+      </ul>
+    </div>
+    <div class="row"><button class="btn primary" id="help-close">Got it</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+  var API_URL = "https://api.anthropic.com/v1/messages";
+  var ANTHROPIC_VERSION = "2023-06-01";
+  var KEY_STORE = "branchchat.anthropic-key";
+  var MODEL_STORE = "branchchat.model";
+
+  // Model ids + browser-direct contract confirmed via the claude-api skill.
+  // Default is Claude Sonnet 5. thinking:disabled keeps chat replies snappy on
+  // the visitor's key (accepted on Sonnet 5 / Opus 4.8; omitted on Haiku 4.5).
+  var MODELS = [
+    { id: "claude-sonnet-5", label: "Sonnet 5", thinking: { type: "disabled" } },
+    { id: "claude-opus-4-8", label: "Opus 4.8", thinking: { type: "disabled" } },
+    { id: "claude-haiku-4-5", label: "Haiku 4.5", thinking: null }
+  ];
+
+  var SYSTEM =
+    "You are Claude, a helpful, thoughtful assistant answering inside a branching conversation " +
+    "canvas. The conversation you receive is one path through a tree — the user may have branched " +
+    "off an earlier message to explore an alternative, so treat the messages you are given as the " +
+    "full and only context. Answer the latest message directly. Keep replies focused and readable.";
+
+  // canvas layout constants
+  var CARD_W = 252;
+  var COL = 290;      // horizontal slot spacing
+  var ROW = 236;      // vertical depth spacing
+  var MARGIN = 60;
+
+  // ---------- state ----------
+  var apiKey = null;
+  var currentModelId = null;
+
+  var root = { id: "root", role: "root", text: "", parent: null, children: [], el: null };
+  var nodes = [];        // all real nodes
+  var byId = { root: root };
+  var seq = 0;
+  var activeNode = root; // where the next message attaches
+  var streamNode = null; // assistant node currently streaming
+  var busy = false;
+  var abortCtl = null;
+
+  var view = { x: MARGIN, y: MARGIN, z: 1 };
+  var linearOn = false;
+
+  // ---------- element refs ----------
+  var $ = function (id) { return document.getElementById(id); };
+  var stageEl = $("stage"), worldEl = $("world"), edgesEl = $("edges"), emptyEl = $("empty");
+  var linearEl = $("linear"), threadEl = $("thread"), viewctlEl = $("viewctl");
+  var statusEl = $("statusline");
+  var composerEl = $("composer"), sendBtn = $("send");
+  var modelSel = $("model"), keystatBtn = $("keystat"), keystatLabel = $("keystat-label");
+  var viewToggleBtn = $("view-toggle");
+
+  // ================= key + model =================
+  function loadKey() {
+    try { apiKey = localStorage.getItem(KEY_STORE) || null; } catch (e) { apiKey = null; }
+    renderKeyStatus();
+  }
+  function saveKey(k) {
+    apiKey = k;
+    try { localStorage.setItem(KEY_STORE, k); } catch (e) {}
+    renderKeyStatus();
+  }
+  function forgetKey() {
+    apiKey = null;
+    try { localStorage.removeItem(KEY_STORE); } catch (e) {}
+    renderKeyStatus();
+  }
+  function renderKeyStatus() {
+    var has = !!apiKey;
+    keystatBtn.classList.toggle("ok", has);
+    keystatLabel.textContent = has ? ("key ·" + (apiKey.length > 6 ? apiKey.slice(-4) : "")) : "no key";
+  }
+
+  function initModels() {
+    var saved = null;
+    try { saved = localStorage.getItem(MODEL_STORE); } catch (e) {}
+    MODELS.forEach(function (m) {
+      var o = document.createElement("option");
+      o.value = m.id; o.textContent = m.label;
+      modelSel.appendChild(o);
+    });
+    currentModelId = MODELS.some(function (m) { return m.id === saved; }) ? saved : MODELS[0].id;
+    modelSel.value = currentModelId;
+  }
+  function currentModel() {
+    for (var i = 0; i < MODELS.length; i++) if (MODELS[i].id === currentModelId) return MODELS[i];
+    return MODELS[0];
+  }
+  modelSel.addEventListener("change", function () {
+    currentModelId = modelSel.value;
+    try { localStorage.setItem(MODEL_STORE, currentModelId); } catch (e) {}
+    setStatus("Model set to " + currentModel().label + ".");
+  });
+
+  // ================= tree model =================
+  function addNode(role, text, parent) {
+    seq += 1;
+    var id = (role === "user" ? "u" : "a") + seq;
+    var n = {
+      id: id, role: role, text: text || "", parent: parent, children: [],
+      pinned: false, x: 0, y: 0, _x: 0, _depth: 0,
+      el: null, bodyEl: null
+    };
+    parent.children.push(n);
+    nodes.push(n);
+    byId[id] = n;
+    renderNode(n);
+    updateEmpty();
+    return n;
+  }
+
+  function removeNode(n) {
+    // removes n and its subtree
+    n.children.slice().forEach(removeNode);
+    var i = n.parent.children.indexOf(n);
+    if (i >= 0) n.parent.children.splice(i, 1);
+    i = nodes.indexOf(n);
+    if (i >= 0) nodes.splice(i, 1);
+    delete byId[n.id];
+    if (n.el && n.el.parentNode) n.el.parentNode.removeChild(n.el);
+    if (activeNode === n) activeNode = n.parent;
+    if (streamNode === n) streamNode = null;
+  }
+
+  function pathTo(node) {
+    var arr = [], n = node;
+    while (n && n !== root) { arr.push(n); n = n.parent; }
+    arr.reverse();
+    return arr;
+  }
+  function buildMessages(node) {
+    return pathTo(node).map(function (n) {
+      return { role: n.role, content: [{ type: "text", text: n.text || "" }] };
+    });
+  }
+  // Where a freshly typed (user) message attaches so alternation stays valid:
+  // continuing after an assistant node attaches to it; "branching" from a user
+  // node attaches to that node's parent (a sibling alternative turn).
+  function composeParentFor(node) {
+    if (!node || node === root) return root;
+    if (node.role === "user") return node.parent;
+    return node;
+  }
+
+  // ================= node rendering =================
+  function renderNode(n) {
+    var el = document.createElement("div");
+    el.className = "node";
+    el.style.width = CARD_W + "px";
+
+    var bar = document.createElement("div");
+    bar.className = "node-bar";
+    var role = document.createElement("span");
+    role.className = "role " + n.role;
+    role.textContent = n.role === "user" ? "you" : "claude";
+    var idn = document.createElement("span");
+    idn.className = "node-id"; idn.textContent = n.id;
+    var br = document.createElement("button");
+    br.className = "branch-btn"; br.type = "button";
+    br.innerHTML = "&#9155; branch";
+    br.title = "Start a new thread from this message";
+    bar.appendChild(role); bar.appendChild(idn); bar.appendChild(br);
+
+    var body = document.createElement("div");
+    body.className = "node-body";
+    body.textContent = n.text;
+    if (!n.text) body.classList.add("empty");
+
+    el.appendChild(bar); el.appendChild(body);
+    worldEl.appendChild(el);
+    n.el = el; n.bodyEl = body; n.barEl = bar;
+
+    br.addEventListener("click", function (e) { e.stopPropagation(); startBranch(n); });
+    el.addEventListener("click", function () { setActive(n); });
+    enableDrag(n, bar);
+  }
+
+  function setNodeText(n, text, streaming) {
+    n.text = text;
+    n.bodyEl.classList.toggle("empty", !text && !streaming);
+    n.bodyEl.textContent = text;
+    if (streaming) {
+      var c = document.createElement("span"); c.className = "caret"; c.textContent = " ";
+      n.bodyEl.appendChild(c);
+    }
+    n.bodyEl.scrollTop = n.bodyEl.scrollHeight;
+  }
+
+  function updateEmpty() { emptyEl.style.display = nodes.length ? "none" : "flex"; }
+
+  // ================= layout =================
+  function relayout() {
+    var slot = 0;
+    function place(node, depth) {
+      if (node.children.length === 0) {
+        node._x = slot; slot += 1;
+      } else {
+        var min = Infinity, max = -Infinity;
+        node.children.forEach(function (c) {
+          place(c, depth + 1);
+          if (c._x < min) min = c._x;
+          if (c._x > max) max = c._x;
+        });
+        node._x = (min + max) / 2;
+      }
+      node._depth = depth;
+    }
+    root.children.forEach(function (c) { place(c, 0); });
+
+    nodes.forEach(function (n) {
+      if (n.pinned) return;
+      n.x = MARGIN + n._x * COL;
+      n.y = MARGIN + n._depth * ROW;
+      positionEl(n);
+    });
+    drawEdges();
+  }
+  function positionEl(n) {
+    if (!n.el) return;
+    n.el.style.left = n.x + "px";
+    n.el.style.top = n.y + "px";
+  }
+
+  function drawEdges() {
+    while (edgesEl.firstChild) edgesEl.removeChild(edgesEl.firstChild);
+    var onpath = activePathSet();
+    nodes.forEach(function (n) {
+      if (n.parent === root || !n.parent.el || !n.el) return;
+      var p = n.parent;
+      var px = p.x + CARD_W / 2, py = p.y + p.el.offsetHeight;
+      var cx = n.x + CARD_W / 2, cy = n.y;
+      var mid = (py + cy) / 2;
+      var d = "M" + px + " " + py + " C " + px + " " + mid + " " + cx + " " + mid + " " + cx + " " + cy;
+      var path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      path.setAttribute("d", d);
+      if (onpath[n.id] && onpath[p.id]) path.setAttribute("class", "onpath");
+      edgesEl.appendChild(path);
+    });
+  }
+
+  function activePathSet() {
+    var set = {};
+    pathTo(activeNode).forEach(function (n) { set[n.id] = true; });
+    return set;
+  }
+
+  // ================= selection =================
+  function setActive(node) {
+    activeNode = node || root;
+    var set = activePathSet();
+    nodes.forEach(function (n) {
+      n.el.classList.toggle("onpath", !!set[n.id]);
+      n.el.classList.toggle("active", n === activeNode);
+    });
+    drawEdges();
+    updateComposerHint();
+    if (linearOn) renderLinear();
+  }
+
+  function startBranch(node) {
+    setActive(node);
+    var parent = composeParentFor(node);
+    var forking = parent.children.length > 0;
+    composerEl.focus();
+    setStatus(forking
+      ? ("Branching from " + node.id + " — your next message forks a new thread here."
+        + " (⌘/Ctrl+Enter to send)")
+      : ("Selected " + node.id + " — your next message continues this thread."));
+    if (linearOn) { switchView(false); }
+  }
+
+  function updateComposerHint() {
+    if (activeNode === root) {
+      composerEl.placeholder = "Message Claude…  (⌘/Ctrl + Enter to send)";
+    } else {
+      var parent = composeParentFor(activeNode);
+      var forking = parent.children.length > 0;
+      composerEl.placeholder = (forking ? "Fork a new thread from " : "Continue from ")
+        + activeNode.id + "…  (⌘/Ctrl + Enter)";
+    }
+  }
+
+  // ================= canvas transform =================
+  function applyView() {
+    worldEl.style.transform = "translate(" + view.x + "px," + view.y + "px) scale(" + view.z + ")";
+  }
+  function zoomAt(cx, cy, factor) {
+    var nz = Math.min(2.0, Math.max(0.25, view.z * factor));
+    var k = nz / view.z;
+    view.x = cx - (cx - view.x) * k;
+    view.y = cy - (cy - view.y) * k;
+    view.z = nz;
+    applyView();
+  }
+  stageEl.addEventListener("wheel", function (e) {
+    e.preventDefault();
+    var r = stageEl.getBoundingClientRect();
+    zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  }, { passive: false });
+
+  var pan = null;
+  stageEl.addEventListener("pointerdown", function (e) {
+    if (e.target !== stageEl && e.target !== worldEl && e.target !== emptyEl
+      && e.target !== edgesEl && !emptyEl.contains(e.target)) return;
+    pan = { px: e.clientX, py: e.clientY, ox: view.x, oy: view.y };
+    stageEl.classList.add("panning");
+    stageEl.setPointerCapture(e.pointerId);
+  });
+  stageEl.addEventListener("pointermove", function (e) {
+    if (!pan) return;
+    view.x = pan.ox + (e.clientX - pan.px);
+    view.y = pan.oy + (e.clientY - pan.py);
+    applyView();
+  });
+  function endPan(e) {
+    if (!pan) return;
+    pan = null; stageEl.classList.remove("panning");
+    try { stageEl.releasePointerCapture(e.pointerId); } catch (_) {}
+  }
+  stageEl.addEventListener("pointerup", endPan);
+  stageEl.addEventListener("pointercancel", endPan);
+
+  $("zoom-in").addEventListener("click", function () { var r = stageEl.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.15); });
+  $("zoom-out").addEventListener("click", function () { var r = stageEl.getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1 / 1.15); });
+  $("zoom-reset").addEventListener("click", function () { view = { x: MARGIN, y: MARGIN, z: 1 }; applyView(); });
+
+  function centerOn(n) {
+    if (!n || !n.el) return;
+    var r = stageEl.getBoundingClientRect();
+    view.x = r.width / 2 - (n.x + CARD_W / 2) * view.z;
+    view.y = r.height / 3 - n.y * view.z;
+    applyView();
+  }
+
+  // node dragging (pins the node)
+  function enableDrag(n, handle) {
+    var drag = null, moved = false;
+    handle.addEventListener("pointerdown", function (e) {
+      if (e.target.classList.contains("branch-btn")) return;
+      drag = { px: e.clientX, py: e.clientY, ox: n.x, oy: n.y };
+      moved = false;
+      n.el.classList.add("dragging");
+      handle.setPointerCapture(e.pointerId);
+      e.stopPropagation();
+    });
+    handle.addEventListener("pointermove", function (e) {
+      if (!drag) return;
+      var dx = (e.clientX - drag.px) / view.z, dy = (e.clientY - drag.py) / view.z;
+      if (Math.abs(dx) + Math.abs(dy) > 2) moved = true;
+      n.pinned = true;
+      n.x = drag.ox + dx; n.y = drag.oy + dy;
+      positionEl(n);
+      drawEdges();
+    });
+    function up(e) {
+      if (!drag) return; drag = null; n.el.classList.remove("dragging");
+      try { handle.releasePointerCapture(e.pointerId); } catch (_) {}
+      if (!moved) setActive(n);
+    }
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  }
+
+  // ================= linear view =================
+  function switchView(toLinear) {
+    linearOn = toLinear;
+    stageEl.classList.toggle("hidden", linearOn);
+    viewctlEl.style.display = linearOn ? "none" : "flex";
+    linearEl.classList.toggle("on", linearOn);
+    viewToggleBtn.textContent = linearOn ? "linear" : "canvas";
+    viewToggleBtn.classList.toggle("on", linearOn);
+    if (linearOn) renderLinear();
+  }
+  viewToggleBtn.addEventListener("click", function () { switchView(!linearOn); });
+
+  function renderLinear() {
+    while (threadEl.firstChild) threadEl.removeChild(threadEl.firstChild);
+    var path = pathTo(activeNode);
+    if (path.length === 0) {
+      var hint = document.createElement("div");
+      hint.className = "siblings";
+      hint.textContent = "No thread selected yet — send a message or pick a node on the canvas.";
+      threadEl.appendChild(hint);
+      return;
+    }
+    path.forEach(function (n) {
+      // sibling picker: if this node's parent has more than one child, offer switching
+      var sibs = n.parent.children;
+      if (sibs.length > 1) {
+        var idx = sibs.indexOf(n);
+        var picker = document.createElement("div");
+        picker.className = "siblings";
+        var prev = document.createElement("button"); prev.type = "button"; prev.textContent = "‹";
+        var lbl = document.createElement("span");
+        lbl.textContent = "branch " + (idx + 1) + " / " + sibs.length + " at " + n.parent.id;
+        var next = document.createElement("button"); next.type = "button"; next.textContent = "›";
+        prev.disabled = idx === 0; next.disabled = idx === sibs.length - 1;
+        prev.addEventListener("click", function () { setActive(deepestLeaf(sibs[idx - 1])); });
+        next.addEventListener("click", function () { setActive(deepestLeaf(sibs[idx + 1])); });
+        picker.appendChild(prev); picker.appendChild(lbl); picker.appendChild(next);
+        threadEl.appendChild(picker);
+      }
+
+      var b = document.createElement("div");
+      b.className = "bubble " + n.role;
+      var who = document.createElement("div");
+      who.className = "who";
+      var name = document.createElement("span");
+      name.textContent = (n.role === "user" ? "you" : "claude") + " · " + n.id;
+      var lb = document.createElement("button");
+      lb.className = "lbranch"; lb.type = "button"; lb.innerHTML = "&#9155; branch";
+      lb.addEventListener("click", function (e) { e.stopPropagation(); startBranch(n); });
+      who.appendChild(name); who.appendChild(lb);
+      var txt = document.createElement("div");
+      txt.className = "txt"; txt.textContent = n.text || "…";
+      b.appendChild(who); b.appendChild(txt);
+      b.dataset.nodeId = n.id;
+      threadEl.appendChild(b);
+    });
+    linearEl.scrollTop = linearEl.scrollHeight;
+  }
+  function deepestLeaf(n) {
+    while (n.children.length) n = n.children[n.children.length - 1];
+    return n;
+  }
+  function updateLinearStreaming(n) {
+    if (!linearOn) return;
+    var b = threadEl.querySelector('[data-node-id="' + n.id + '"]');
+    if (b) {
+      var t = b.querySelector(".txt");
+      if (t) { t.textContent = n.text || "…"; }
+      linearEl.scrollTop = linearEl.scrollHeight;
+    } else {
+      renderLinear();
+    }
+  }
+
+  // ================= status =================
+  function setStatus(text, isErr) {
+    statusEl.classList.toggle("err", !!isErr);
+    statusEl.textContent = text || "";
+  }
+  function setBusyStatus(html) {
+    statusEl.classList.remove("err");
+    statusEl.innerHTML = html;
+  }
+
+  // ================= streaming API call =================
+  function ApiError(status, body) { this.status = status; this.body = body; }
+  ApiError.prototype = Object.create(Error.prototype);
+
+  function friendlyError(err) {
+    if (err instanceof ApiError) {
+      var msg = err.body && err.body.error && err.body.error.message ? err.body.error.message : "";
+      if (err.status === 401) return "API key rejected (401). Open the key panel and re-enter a valid key.";
+      if (err.status === 403) return "Access denied (403). This key may not have access to " + currentModel().label + ".";
+      if (err.status === 404) return "Not found (404). " + (msg || "The model id may be unavailable to this key.");
+      if (err.status === 429) return "Rate limited (429). Wait a moment, then try again.";
+      if (err.status === 400) return "Request rejected (400). " + (msg || "");
+      if (err.status >= 500) return "Anthropic service error (" + err.status + "). Retry shortly.";
+      return "API error " + err.status + (msg ? ": " + msg : "");
+    }
+    if (err && err.name === "AbortError") return "Stopped.";
+    return "Network error: " + String(err && err.message ? err.message : err) +
+      " (a browser extension or ad-blocker can block api.anthropic.com).";
+  }
+
+  function streamMessage(msgs, onText) {
+    var model = currentModel();
+    var body = {
+      model: model.id,
+      max_tokens: 4096,
+      system: SYSTEM,
+      messages: msgs,
+      stream: true
+    };
+    if (model.thinking) body.thinking = model.thinking;
+
+    abortCtl = new AbortController();
+    return fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify(body),
+      signal: abortCtl.signal
+    }).then(function (resp) {
+      if (!resp.ok) {
+        return resp.json().catch(function () { return null; }).then(function (j) {
+          throw new ApiError(resp.status, j);
+        });
+      }
+      var reader = resp.body.getReader();
+      var dec = new TextDecoder();
+      var buf = "";
+      var blocks = [];
+      var stop_reason = null;
+
+      function handleEvent(dataStr) {
+        var evt;
+        try { evt = JSON.parse(dataStr); } catch (e) { return; }
+        switch (evt.type) {
+          case "content_block_start":
+            var cb = evt.content_block || {};
+            blocks[evt.index] = { type: cb.type || "other", text: "" };
+            break;
+          case "content_block_delta":
+            var d = evt.delta || {}, blk = blocks[evt.index];
+            if (!blk) break;
+            if (d.type === "text_delta") { blk.text += d.text; if (onText) onText(d.text); }
+            break;
+          case "message_delta":
+            if (evt.delta && evt.delta.stop_reason) stop_reason = evt.delta.stop_reason;
+            break;
+          case "error":
+            throw new ApiError((evt.error && evt.error.status) || 0, evt);
+        }
+      }
+
+      function pump() {
+        return reader.read().then(function (res) {
+          if (res.done) {
+            var text = blocks.filter(function (b) { return b && b.type === "text"; })
+              .map(function (b) { return b.text; }).join("");
+            return { text: text, stop_reason: stop_reason };
+          }
+          buf += dec.decode(res.value, { stream: true });
+          var idx;
+          while ((idx = buf.indexOf("\n")) >= 0) {
+            var line = buf.slice(0, idx); buf = buf.slice(idx + 1);
+            line = line.replace(/\r$/, "");
+            if (line.indexOf("data:") === 0) {
+              var payload = line.slice(5).trim();
+              if (payload && payload !== "[DONE]") handleEvent(payload);
+            }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    });
+  }
+
+  // ================= send / generate =================
+  function send() {
+    if (busy) { if (abortCtl) abortCtl.abort(); return; }
+    var text = composerEl.value.trim();
+    if (!text) return;
+    if (!apiKey) { openKeyModal(); return; }
+    composerEl.value = "";
+    autosize();
+
+    var parent = composeParentFor(activeNode);
+    var userNode = addNode("user", text, parent);
+    setActive(userNode);
+    relayout();
+    generateReply(userNode);
+  }
+
+  function generateReply(userNode) {
+    busy = true;
+    setSending(true);
+    var asst = addNode("assistant", "", userNode);
+    streamNode = asst;
+    setActive(asst);
+    relayout();
+    centerOn(asst);
+    setBusyStatus("<span class='spin'>◜</span> " + currentModel().label + " is replying…");
+
+    var acc = "";
+    var msgs = buildMessages(userNode);
+
+    streamMessage(msgs, function (t) {
+      acc += t;
+      setNodeText(asst, acc, true);
+      relayout();
+      updateLinearStreaming(asst);
+    }).then(function (res) {
+      streamNode = null;
+      var finalText = (res.text || acc).trim();
+      if (!finalText) {
+        setNodeText(asst, "(no text returned)", false);
+      } else {
+        setNodeText(asst, finalText, false);
+      }
+      relayout();
+      if (linearOn) renderLinear();
+      finish();
+    }).catch(function (err) {
+      streamNode = null;
+      // drop the empty assistant node so the tree stays clean; keep the user node
+      if (!asst.text) {
+        removeNode(asst);
+      } else {
+        setNodeText(asst, asst.text, false);
+      }
+      relayout();
+      setActive(userNode);
+      if (linearOn) renderLinear();
+      setStatus(friendlyError(err), true);
+      if (err instanceof ApiError && err.status === 401) openKeyModal();
+      finish();
+    });
+
+    function finish() {
+      busy = false;
+      setSending(false);
+      if (!statusEl.classList.contains("err")) setStatus("");
+    }
+  }
+
+  function setSending(on) {
+    sendBtn.textContent = on ? "Stop" : "Send";
+    sendBtn.classList.toggle("stop", on);
+    sendBtn.disabled = false;
+  }
+
+  // ================= composer =================
+  sendBtn.addEventListener("click", send);
+  composerEl.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); send(); }
+  });
+  function autosize() {
+    composerEl.style.height = "auto";
+    composerEl.style.height = Math.min(128, composerEl.scrollHeight) + "px";
+  }
+  composerEl.addEventListener("input", autosize);
+
+  // ================= modals =================
+  function openKeyModal() {
+    $("key-input").value = apiKey || "";
+    $("key-err").textContent = "";
+    $("key-scrim").classList.add("open");
+    setTimeout(function () { $("key-input").focus(); }, 30);
+  }
+  function closeKeyModal() { $("key-scrim").classList.remove("open"); }
+  keystatBtn.addEventListener("click", openKeyModal);
+  $("key-save").addEventListener("click", function () {
+    var v = $("key-input").value.trim();
+    if (!v) { $("key-err").textContent = "Enter a key, or use Forget key to clear it."; return; }
+    if (v.indexOf("sk-ant-") !== 0) {
+      $("key-err").textContent = "That doesn't look like an Anthropic key (they start with sk-ant-). Saving anyway is allowed, but check it if calls fail.";
+    }
+    saveKey(v);
+    closeKeyModal();
+    setStatus("Key saved locally.");
+  });
+  $("key-forget").addEventListener("click", function () {
+    forgetKey();
+    $("key-input").value = "";
+    $("key-err").textContent = "";
+    setStatus("Key forgotten (removed from this browser).");
+  });
+  $("help-btn").addEventListener("click", function () { $("help-scrim").classList.add("open"); });
+  $("help-close").addEventListener("click", function () { $("help-scrim").classList.remove("open"); });
+  [["key-scrim", closeKeyModal], ["help-scrim", function () { $("help-scrim").classList.remove("open"); }]].forEach(function (pair) {
+    $(pair[0]).addEventListener("click", function (e) { if (e.target === $(pair[0])) pair[1](); });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { closeKeyModal(); $("help-scrim").classList.remove("open"); }
+  });
+
+  // ================= boot =================
+  loadKey();
+  initModels();
+  applyView();
+  autosize();
+  updateEmpty();
+  updateComposerHint();
+  if (!apiKey) {
+    setStatus("Bring your own Anthropic key to start — it stays in your browser. Click “no key” above.");
+  } else {
+    setStatus("Ready. Send a message; branch from any node to fork a thread.");
+  }
+})();
+</script>
+</body>
+</html>
