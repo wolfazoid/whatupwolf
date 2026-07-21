@@ -197,6 +197,21 @@ export function resolveStatus(reportStatus, testsPassed, checkPassed) {
   return testsPassed && checkPassed ? reportStatus : 'flagged';
 }
 
+// The pure half of the single-instance lock. Given the raw contents of
+// engine/.run.lock (or null when the file is missing) and a liveness probe
+// `isAlive(pid) -> boolean`, decide whether the lock is free to take. Free when
+// the file is missing, its contents aren't a positive pid, or the pid it names
+// is no longer running — a stale lock left by a killed run must never wedge the
+// loop. Held only when the file names a currently-live pid. The I/O — reading
+// the file and probing with process.kill(pid, 0) — stays in the runner; this
+// stays pure so the free / held-by-live / stale-pid cases are unit-testable.
+export function lockIsFree(lockContents, isAlive) {
+  if (lockContents == null) return true;
+  const pid = Number.parseInt(String(lockContents).trim(), 10);
+  if (!Number.isInteger(pid) || pid <= 0) return true;
+  return !isAlive(pid);
+}
+
 // Parses the output of `gh auth status` and returns the username of the account
 // marked active, or '' if none is found. gh 2.45 dropped the `--active` flag, so
 // instead of asking gh to filter, we scan the full status text: each account
