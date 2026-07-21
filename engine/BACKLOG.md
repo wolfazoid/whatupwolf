@@ -5,6 +5,16 @@ The runner picks the **first unchecked `- [ ]` item** each cycle. Human-editable
 **Convention:** only `- [ ]` / `- [x]` lines are tasks. Anything under **Later** is a plain
 bullet (no checkbox) so the runner will NOT pick it — promote it to `- [ ]` when it's ready.
 
+**Auto-zone vs gated — mind the guard allowlist.** A task is only truly "auto-zone"
+(auto-merges on green CI) if **every** file it touches is inside the guard allowlist:
+`src/content/lab/*`, `engine/*`, `src/lib/*`. A task that must edit a **root or config
+file outside that list** — `.gitignore`, `package.json`, `tsconfig.json`,
+`astro.config.mjs`, `.github/**`, etc. — will be labelled **needs-human** and wait for
+Wolf's manual merge, even if the rest of the diff is in-zone. So mark such a task
+**GATED** up front rather than "auto-zone." (Learned from Tier 15: the in-code lock was
+queued auto-zone but had to add `engine/.run.lock` to the **root** `.gitignore`, so the
+guard gated PR #38.)
+
 ## Done
 
 - [x] Build the sanitization filter — implement `src/lib/sanitize.ts` so `npm test` passes (allowlist + fail-closed; do not weaken the seeded tests)

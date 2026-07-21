@@ -13,6 +13,16 @@ The runner has already checked out a fresh branch and told you this cycle's task
 4. **Check off nothing and touch no git state** — the runner handles commit, branch,
    PR, and the Lab entry. You only change source files and write the report below.
 
+### One Lab entry per cycle (do not duplicate)
+
+By default the **runner** writes the cycle's Lab entry from your report — so **do not
+create a `src/content/lab/*.md` yourself** for an ordinary cycle. The exception is a
+task that explicitly asks you to *publish its own curated writeup* — a tool or
+experiment post carrying a "try it" link (`tool: /tools/…` in frontmatter). For those,
+author **exactly one** such entry under `src/content/lab/`; the runner detects it and
+will **not** add its generic build-log entry, so the feed shows one post, not two.
+Never write both a curated writeup and leave the generic entry to render as well.
+
 ## Report file (required)
 
 Before you finish, write `engine/.cycle-report.json`:

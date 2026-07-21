@@ -278,3 +278,26 @@ export function parseCycleReport(jsonStr) {
     body: String(r.body ?? ''),
   };
 }
+
+// Detects Lab entries the MACHINE authored itself during a cycle, from
+// `git status --porcelain` run on the feature branch. Some tasks publish their
+// own curated writeup — a tool/experiment post carrying a "try it" link — as
+// part of the work. When they do, the runner must NOT also emit its generic
+// build-log entry, or the same work is listed twice in the Lab feed (this bit us
+// with Cook Mode, then again with the Generative UI Canvas). We count only NEWLY
+// added files (porcelain status `??` untracked, or `A` added) under
+// src/content/lab/ ending in .md; a plain edit to an existing entry doesn't count.
+// Pure — the caller runs git and passes the output in.
+export function newLabEntriesInStatus(porcelain) {
+  const out = [];
+  for (const raw of String(porcelain).split('\n')) {
+    if (!raw.trim()) continue;
+    const status = raw.slice(0, 2);
+    let path = raw.slice(3).trim();
+    // porcelain quotes paths with unusual chars; our slugs never need it, but strip defensively
+    if (path.startsWith('"') && path.endsWith('"')) path = path.slice(1, -1);
+    const isNewFile = status === '??' || status[0] === 'A';
+    if (isNewFile && /^src\/content\/lab\/.+\.md$/.test(path)) out.push(path);
+  }
+  return out;
+}

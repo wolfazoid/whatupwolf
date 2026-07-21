@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickBuildableItem, prListArgs, markItemDone, slugify, renderLabEntry, parseCycleReport,
-  resolveStatus, shortTitle, draftForType, lockIsFree,
+  resolveStatus, shortTitle, draftForType, lockIsFree, newLabEntriesInStatus,
 } from './lib.mjs';
 import { publishBranch } from './publish.mjs';
 
@@ -239,6 +239,16 @@ function runCycleLocked() {
   // the direct-vs-review gate (draftForType) then decides whether the entry ships
   // live or waits for review. experiment/monitor publish direct; a briefing- or
   // opinion-typed entry would be stamped draft:true for Wolf to read first.
+  //
+  // EXCEPTION — no duplicate entries: some tasks publish their OWN curated Lab
+  // writeup (a tool/experiment post with a "try it" link) as part of the work. If
+  // the machine already added a src/content/lab/*.md this cycle, that entry is the
+  // canonical one; adding the runner's generic build-log entry too would list the
+  // same work twice in the feed (Cook Mode, then the Generative UI Canvas). Detect
+  // any machine-authored entry and skip our render when present.
+  const machineLabEntries = DRY
+    ? []
+    : newLabEntriesInStatus(sh('git', ['status', '--porcelain', '--', 'src/content/lab']));
   const date = new Date();
   const type = 'experiment';
   const entry = renderLabEntry({
@@ -261,7 +271,11 @@ function runCycleLocked() {
   }
 
   writeFileSync(BACKLOG, markItemDone(backlogMd, item.title));
-  writeFileSync(entryPath, entry);
+  if (machineLabEntries.length) {
+    console.log(`Machine published its own Lab entry (${machineLabEntries.join(', ')}) — skipping the generic build-log entry to avoid a duplicate.`);
+  } else {
+    writeFileSync(entryPath, entry);
+  }
   if (existsSync(REPORT)) rmSync(REPORT);
 
   // 7. Commit, push, PR — as wolfazoid, then restore (see engine/publish.mjs).
