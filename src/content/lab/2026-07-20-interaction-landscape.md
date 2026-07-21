@@ -5,7 +5,7 @@ type: briefing
 status: done
 tags: [interaction, briefing]
 live: true
-draft: true
+draft: false
 summary: "Surveyed 32 verified LLM interaction patterns across nine areas — generative UI protocols, spatial and direct-manipulation interfaces, agent-initiated pausing, elicitation and memory UX — with a browser-only BYO-key generative UI canvas as the top prototype candidate."
 ---
 
