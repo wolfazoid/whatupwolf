@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Memory Inspector — watch what a chat assistant remembers about you</title>
+<meta name="description" content="A chat whose memory store sits open beside it. After each turn Claude extracts durable facts into an editable memory list; each entry is shaded by inferred confidence and sensitivity. Bring your own Anthropic key — it stays in your browser. One file, no build step.">
+<style>
+  :root {
+    --paper: #f4f1ea;
+    --paper-2: #efeae0;
+    --card: #fbf9f4;
+    --ink: #1c1b17;
+    --ink-dim: #6d6a5f;
+    --line: #ddd7c8;
+    --line-strong: #cbc4b2;
+    --accent: #b8681a;
+    --accent-ink: #fffdf8;
+    --ok: #3f7d3a;
+    --warn: #b23b2e;
+    --radius: 12px;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #17150f; --paper-2: #1f1c14; --card: #211e16; --ink: #f4f1ea;
+      --ink-dim: #a29d8f; --line: #38342a; --line-strong: #4a4536;
+      --accent: #ffb454; --accent-ink: #1b1508;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.5 var(--sans);
+    display: flex;
+    flex-direction: column;
+    -webkit-text-size-adjust: 100%;
+    overflow: hidden;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  h1, h2, h3 { margin: 0; line-height: 1.2; }
+  a { color: var(--accent); }
+
+  /* ---------------- masthead + toolbar ---------------- */
+  header.masthead {
+    display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    padding: .55rem .9rem; border-bottom: 1px solid var(--line); background: var(--paper-2);
+  }
+  .brand { display: flex; align-items: baseline; gap: .55rem; }
+  .brand h1 { font-size: 1.02rem; letter-spacing: -.01em; }
+  .brand .kicker {
+    font-family: var(--mono); font-size: .64rem; text-transform: uppercase;
+    letter-spacing: .13em; color: var(--ink-dim);
+  }
+  .toolbar { margin-left: auto; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .keystat {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .04em;
+    display: inline-flex; align-items: center; gap: .4rem;
+    border: 1px solid var(--line); border-radius: 999px; padding: .28rem .6rem; background: var(--card);
+  }
+  .keystat .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--warn); }
+  .keystat.ok .dot { background: var(--ok); }
+  select.model {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .02em;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .3rem .5rem;
+  }
+  .tbtn {
+    font-family: var(--mono); font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .34rem .6rem;
+  }
+  .tbtn:hover { border-color: var(--line-strong); }
+
+  /* ---------------- workspace split ---------------- */
+  main { flex: 1; display: grid; grid-template-columns: 1fr 22rem; min-height: 0; }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+
+  /* ----- chat column ----- */
+  .chat { display: flex; flex-direction: column; min-height: 0; min-width: 0; border-right: 1px solid var(--line); }
+  @media (max-width: 760px) { .chat { border-right: 0; border-bottom: 1px solid var(--line); } }
+  .transcript { flex: 1; overflow-y: auto; padding: 1rem .95rem .4rem; display: flex; flex-direction: column; gap: .7rem; }
+  .msg { max-width: 42rem; display: flex; flex-direction: column; gap: .2rem; }
+  .msg .who {
+    font-family: var(--mono); font-size: .6rem; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-dim);
+  }
+  .msg .bubble {
+    border: 1px solid var(--line); border-radius: 12px; padding: .55rem .75rem; background: var(--card);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+  .msg.user .bubble { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .msg.assistant { align-self: flex-start; }
+  .msg.assistant .bubble { background: var(--card); }
+  .chat-empty {
+    margin: auto; max-width: 26rem; text-align: center; color: var(--ink-dim); padding: 2rem 1rem;
+  }
+  .chat-empty h2 { color: var(--ink); font-size: 1.1rem; margin-bottom: .4rem; letter-spacing: -.01em; }
+  .chat-empty code { font-family: var(--mono); font-size: .84em; background: var(--paper-2); padding: .05rem .3rem; border-radius: 5px; }
+
+  .statusline {
+    font-family: var(--mono); font-size: .68rem; color: var(--ink-dim);
+    padding: .1rem .95rem; min-height: 1.1rem;
+  }
+  .statusline .spin { display: inline-block; animation: spin 1s steps(8) infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .composer {
+    border-top: 1px solid var(--line); background: var(--paper-2);
+    padding: .6rem .9rem calc(.6rem + env(safe-area-inset-bottom)); display: flex; gap: .6rem; align-items: flex-end;
+  }
+  .composer textarea {
+    flex: 1; resize: none; height: 2.7rem; max-height: 8rem; min-height: 2.7rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: .55rem .7rem; line-height: 1.4;
+  }
+  textarea:focus, input:focus, select:focus, button:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 1px;
+  }
+  .send {
+    flex: none; background: var(--accent); color: var(--accent-ink); border: 1px solid transparent;
+    border-radius: 10px; padding: 0 1.1rem; height: 2.7rem; font-weight: 650;
+  }
+  .send:disabled { opacity: .5; cursor: default; }
+  .send.stop { background: var(--warn); }
+
+  /* ----- memory column ----- */
+  .store { display: flex; flex-direction: column; min-height: 0; background: var(--paper-2); }
+  .store-head {
+    display: flex; align-items: center; gap: .5rem; padding: .55rem .8rem; border-bottom: 1px solid var(--line);
+  }
+  .store-head h2 {
+    font-family: var(--mono); font-size: .7rem; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-dim);
+  }
+  .store-head .count {
+    font-family: var(--mono); font-size: .64rem; color: var(--ink-dim);
+    border: 1px solid var(--line); border-radius: 999px; padding: .1rem .45rem;
+  }
+  .store-head .clear {
+    margin-left: auto; font-family: var(--mono); font-size: .62rem; text-transform: uppercase; letter-spacing: .06em;
+    background: none; border: 1px solid var(--line); border-radius: 7px; padding: .22rem .45rem; color: var(--ink-dim);
+  }
+  .store-head .clear:hover { color: var(--warn); border-color: var(--line-strong); }
+  .store-list { flex: 1; overflow-y: auto; padding: .6rem .7rem; display: flex; flex-direction: column; gap: .5rem; }
+  .store-empty { color: var(--ink-dim); font-size: .84rem; padding: 1rem .3rem; text-align: center; }
+
+  .mem {
+    border: 1px solid var(--line-strong); border-left-width: 4px; border-radius: 9px;
+    padding: .5rem .6rem; position: relative; transition: background .2s ease;
+  }
+  .mem .text { font-size: .88rem; line-height: 1.4; word-break: break-word; }
+  .mem .meta {
+    display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-top: .4rem;
+    font-family: var(--mono); font-size: .58rem; letter-spacing: .03em; color: var(--ink-dim);
+  }
+  .mem .meta .cat { text-transform: uppercase; letter-spacing: .08em; }
+  .mem .meta .gauge { display: inline-flex; align-items: center; gap: .25rem; }
+  .mem .acts { margin-left: auto; display: inline-flex; gap: .3rem; }
+  .mem .acts button {
+    border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: .1rem .35rem;
+    font-family: var(--mono); font-size: .58rem; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-dim);
+  }
+  .mem .acts button:hover { border-color: var(--line-strong); color: var(--ink); }
+  .mem .acts button.forget:hover { color: var(--warn); border-color: var(--warn); }
+  .mem.fresh { animation: pop .5s ease; }
+  @keyframes pop { from { transform: scale(.96); opacity: .3; } to { transform: none; opacity: 1; } }
+  .mem-edit textarea {
+    width: 100%; min-height: 3.2rem; background: var(--card); border: 1px solid var(--line);
+    border-radius: 7px; padding: .4rem .5rem; font-size: .86rem; line-height: 1.4; resize: vertical;
+  }
+  .mem-edit .row { display: flex; gap: .4rem; margin-top: .4rem; align-items: center; }
+  .mem-edit .row .hint { font-family: var(--mono); font-size: .56rem; color: var(--ink-dim); margin-left: auto; }
+  .mem-edit button {
+    border: 1px solid var(--line); background: var(--card); border-radius: 7px; padding: .25rem .55rem;
+    font-family: var(--mono); font-size: .6rem; text-transform: uppercase; letter-spacing: .05em;
+  }
+  .mem-edit button.save { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+
+  /* legend */
+  .legend { border-top: 1px solid var(--line); padding: .55rem .8rem .7rem; background: var(--paper-2); }
+  .legend .lt {
+    font-family: var(--mono); font-size: .6rem; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--ink-dim); margin-bottom: .4rem;
+  }
+  .legend .field { display: flex; align-items: stretch; gap: .4rem; }
+  .legend .yax {
+    writing-mode: vertical-rl; transform: rotate(180deg); font-family: var(--mono); font-size: .54rem;
+    letter-spacing: .05em; color: var(--ink-dim); text-align: center; padding: .1rem 0;
+  }
+  .legend .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px; flex: 1; }
+  .legend .grid span { aspect-ratio: 1 / .62; border-radius: 3px; border: 1px solid var(--line); }
+  .legend .xax { font-family: var(--mono); font-size: .54rem; letter-spacing: .05em; color: var(--ink-dim); text-align: center; margin-top: .25rem; }
+  .legend .corner { display: flex; justify-content: space-between; font-family: var(--mono); font-size: .5rem; color: var(--ink-dim); margin-top: .1rem; }
+
+  /* ---------------- modal ---------------- */
+  .scrim {
+    position: fixed; inset: 0; background: rgba(20,16,8,.5); z-index: 50;
+    display: none; align-items: center; justify-content: center; padding: 1rem;
+  }
+  .scrim.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--line-strong); border-radius: 14px;
+    max-width: 34rem; width: 100%; max-height: 90vh; overflow-y: auto;
+    padding: 1.4rem 1.5rem; box-shadow: 0 24px 60px rgba(20,16,8,.35);
+  }
+  .modal h2 { font-size: 1.2rem; margin-bottom: .3rem; letter-spacing: -.01em; }
+  .modal .sub { color: var(--ink-dim); font-size: .9rem; margin-bottom: 1.1rem; }
+  .modal label.field {
+    display: block; font-family: var(--mono); font-size: .68rem; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--ink-dim); margin: .9rem 0 .35rem;
+  }
+  .modal input[type="password"], .modal input[type="text"] {
+    width: 100%; background: var(--paper); border: 1px solid var(--line); border-radius: 9px;
+    padding: .6rem .7rem; font-family: var(--mono); font-size: .82rem;
+  }
+  .trust {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2);
+    padding: .8rem .9rem; margin: 1rem 0 .2rem; font-size: .86rem; color: var(--ink-dim);
+  }
+  .trust strong { color: var(--ink); }
+  .trust ul { margin: .5rem 0 0; padding-left: 1.1rem; }
+  .trust li { margin: .3rem 0; }
+  .modal .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1.2rem; align-items: center; }
+  .btn {
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: .55rem 1rem; font-weight: 600;
+  }
+  .btn:hover { border-color: var(--line-strong); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.danger { color: var(--warn); }
+  .modal .err { color: var(--warn); font-size: .85rem; margin-top: .6rem; min-height: 1rem; }
+  .spacer { flex: 1; }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="brand">
+    <h1>Memory Inspector</h1>
+    <span class="kicker">byo-key · watch what it remembers</span>
+  </div>
+  <div class="toolbar">
+    <button class="keystat" id="keystat" title="Manage your API key">
+      <span class="dot"></span><span id="keystat-label">no key</span>
+    </button>
+    <select class="model" id="model" title="Model"></select>
+    <button class="tbtn" id="help-btn">?</button>
+  </div>
+</header>
+
+<main>
+  <!-- chat column -->
+  <section class="chat">
+    <div class="transcript" id="transcript" aria-live="polite">
+      <div class="chat-empty" id="chat-empty">
+        <h2>Say something about yourself.</h2>
+        <p>Chat normally — <code>I'm a landscape architect in Lisbon</code>,
+        <code>I prefer terse answers</code>, <code>I'm allergic to shellfish</code>.
+        After each reply, Claude extracts the durable facts into the memory store on the right,
+        shaded by how <em>sure</em> and how <em>sensitive</em> each one is. Edit or forget any of them.</p>
+      </div>
+    </div>
+    <div class="statusline" id="statusline"></div>
+    <div class="composer">
+      <textarea id="composer" placeholder="Talk to the assistant…  (⌘/Ctrl + Enter to send)" spellcheck="false"></textarea>
+      <button class="send" id="send">Send</button>
+    </div>
+  </section>
+
+  <!-- memory column -->
+  <aside class="store">
+    <div class="store-head">
+      <h2>Memory</h2>
+      <span class="count" id="mem-count">0</span>
+      <button class="clear" id="mem-clear">clear all</button>
+    </div>
+    <div class="store-list" id="store-list">
+      <div class="store-empty" id="store-empty">Nothing remembered yet. What the assistant learns about you shows up here after each turn.</div>
+    </div>
+    <div class="legend">
+      <div class="lt">Shading</div>
+      <div class="field">
+        <div class="yax">sensitivity →</div>
+        <div style="flex:1">
+          <div class="grid" id="legend-grid"></div>
+          <div class="xax">confidence →</div>
+        </div>
+      </div>
+      <div class="corner"><span>faint = unsure</span><span>red = private</span></div>
+    </div>
+  </aside>
+</main>
+
+<!-- Key modal -->
+<div class="scrim" id="key-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="key-title">
+    <h2 id="key-title">Your Anthropic API key</h2>
+    <p class="sub">This tool calls Claude directly from your browser. Bring your own key.</p>
+
+    <div class="trust">
+      <strong>Your key stays in your browser. It is never sent to any server of ours.</strong>
+      <ul>
+        <li>It is stored only in this browser's <code>localStorage</code> and sent straight to
+          <code>api.anthropic.com</code> — nowhere else. This site is static; there is no backend to receive it.</li>
+        <li>Your chat and the extracted memory also live only in this browser. Nothing is sent anywhere but Anthropic.</li>
+        <li>Clear it any time with <em>Forget key</em> below.</li>
+      </ul>
+    </div>
+
+    <label class="field" for="key-input">API key (starts with <code>sk-ant-</code>)</label>
+    <input type="password" id="key-input" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+    <p class="err" id="key-err"></p>
+
+    <div class="row">
+      <button class="btn primary" id="key-save">Save key</button>
+      <button class="btn danger" id="key-forget">Forget key</button>
+      <span class="spacer"></span>
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Get a key ↗</a>
+    </div>
+  </div>
+</div>
+
+<!-- Help modal -->
+<div class="scrim" id="help-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <h2 id="help-title">How this works</h2>
+    <p class="sub">A memory-transparency prototype for whatupwolf.com/lab.</p>
+    <div class="trust" style="background:var(--card)">
+      <p>Every turn, the assistant is told what it currently remembers about you (the list on the right), so its
+      replies are shaped by that memory. After it answers, a second <strong>extraction pass</strong> reads the exchange
+      and decides which durable facts to <strong>add or update</strong> — and estimates, for each, a
+      <strong>confidence</strong> (how sure it is the fact is true and lasting) and a <strong>sensitivity</strong>
+      (how personal or private it is).</p>
+      <ul>
+        <li>Each entry's <strong>background shading is a 2-D read</strong>: how far along the confidence axis it sits
+          (faint → strong fill) and where it lands on the sensitivity axis (calm green → warning red). What the system
+          "knows", and how sure and how sensitive, is legible without opening anything.</li>
+        <li><strong>Edit</strong> an entry to correct it — an edited fact becomes fully confident (you confirmed it).
+          <strong>Forget</strong> removes it.</li>
+        <li>Edits and forgets take effect <strong>on the next turn</strong>, because the memory list is re-injected into
+          the model's context each time you send a message.</li>
+        <li>The extraction pass looks for stable, user-specific facts (identity, preferences, goals, constraints) and
+          ignores one-off chatter. It's a heuristic — that's the point of being able to see and correct it.</li>
+      </ul>
+      <p style="margin-bottom:0">Inspired by <a href="https://arxiv.org/abs/2410.14931" target="_blank" rel="noopener noreferrer">MemoAnalyzer</a>,
+      on making an assistant's inferred memory visible and editable.</p>
+    </div>
+    <div class="row"><button class="btn primary" id="help-close">Got it</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+  var API_URL = "https://api.anthropic.com/v1/messages";
+  var ANTHROPIC_VERSION = "2023-06-01";
+  var KEY_STORE = "memins.anthropic-key";
+  var MODEL_STORE = "memins.model";
+  var MEM_STORE = "memins.memory";
+
+  // Sonnet 5 is the default; Opus 4.8 and Haiku 4.5 are pickable.
+  // thinking: {type:"disabled"} keeps chat + extraction fast on the 4.6+ models;
+  // Haiku 4.5 predates the adaptive/disabled switch, so omit thinking there.
+  var MODELS = [
+    { id: "claude-sonnet-5", label: "Sonnet 5", thinking: { type: "disabled" } },
+    { id: "claude-opus-4-8", label: "Opus 4.8", thinking: { type: "disabled" } },
+    { id: "claude-haiku-4-5", label: "Haiku 4.5", thinking: null }
+  ];
+
+  var CHAT_SYSTEM_BASE =
+    "You are a warm, concise assistant chatting with one user. You keep a persistent memory of durable facts " +
+    "about them. Use what you remember naturally when it helps — do not recite the memory back unless asked. " +
+    "Reply in a sentence or two unless more is clearly wanted.";
+
+  var EXTRACT_SYSTEM =
+    "You are a memory-extraction pass sitting behind a chat assistant. You read the most recent exchange and the " +
+    "assistant's current memory, then decide what DURABLE facts about the user to record. A durable fact is stable, " +
+    "user-specific information worth keeping across sessions: identity, roles, location, relationships, preferences, " +
+    "goals, ongoing projects, and constraints (allergies, accessibility needs, hard limits). Ignore one-off chatter, " +
+    "questions, task details, and anything ephemeral.\n\n" +
+    "For every fact you add or update, estimate two numbers in [0,1]:\n" +
+    "- confidence: how sure you are the fact is true AND durable. A clear first-person statement is high; an " +
+    "inference or an offhand aside is low.\n" +
+    "- sensitivity: how personal or private the fact is. Neutral preferences are low; names, precise location, " +
+    "health, finances, beliefs, and relationships are high.\n\n" +
+    "Prefer UPDATING an existing entry (by its id) when new information refines or contradicts it, rather than adding " +
+    "a duplicate. Keep each fact to one short, self-contained sentence written in the third person (\"The user ...\"). " +
+    "If the exchange contains nothing durable, return an empty operations array. Always answer by calling commit_memory.";
+
+  var EXTRACT_TOOL = {
+    name: "commit_memory",
+    description: "Record the durable facts to add or update in the user's memory store.",
+    input_schema: {
+      type: "object",
+      properties: {
+        operations: {
+          type: "array",
+          description: "Zero or more memory operations. Empty if nothing durable was learned.",
+          items: {
+            type: "object",
+            properties: {
+              op: { type: "string", enum: ["add", "update"], description: "add a new fact, or update an existing one by id." },
+              id: { type: "string", description: "For op=update: the id of the existing entry to replace. Omit for add." },
+              text: { type: "string", description: "The fact as one short third-person sentence." },
+              confidence: { type: "number", description: "0..1 — how sure the fact is true and durable." },
+              sensitivity: { type: "number", description: "0..1 — how personal or private the fact is." },
+              category: { type: "string", description: "A one-word tag, e.g. identity, preference, goal, constraint, relationship, location." }
+            },
+            required: ["op", "text", "confidence", "sensitivity", "category"]
+          }
+        }
+      },
+      required: ["operations"]
+    }
+  };
+
+  // ---------- state ----------
+  var apiKey = null;
+  var currentModelId = null;
+  var chat = [];          // {role:"user"|"assistant", content:string}
+  var memory = [];        // {id, text, confidence, sensitivity, category, updatedAt}
+  var memSeq = 0;
+  var busy = false;
+  var abortCtl = null;
+
+  // ---------- element refs ----------
+  var $ = function (id) { return document.getElementById(id); };
+  var transcriptEl = $("transcript"), chatEmptyEl = $("chat-empty");
+  var statusEl = $("statusline"), composerEl = $("composer"), sendBtn = $("send");
+  var modelSel = $("model"), keystatBtn = $("keystat"), keystatLabel = $("keystat-label");
+  var storeListEl = $("store-list"), storeEmptyEl = $("store-empty"), memCountEl = $("mem-count");
+
+  function clamp01(n) {
+    n = Number(n);
+    if (!isFinite(n)) return 0.5;
+    if (n > 1) n = n > 1.5 ? n / 100 : 1;   // tolerate a stray percentage
+    if (n < 0) n = 0;
+    if (n > 1) n = 1;
+    return n;
+  }
+  function isDark() { return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches; }
+
+  // 2-D shading: sensitivity drives hue (green→red), confidence drives fill strength.
+  function shadeFor(confidence, sensitivity) {
+    var c = clamp01(confidence), s = clamp01(sensitivity);
+    var hue = Math.round(142 - s * 130);            // 142 (calm green) → 12 (warning red)
+    var sat = Math.round(26 + c * 54);              // surer → more saturated
+    var alpha = 0.16 + c * 0.5;                      // surer → stronger fill
+    var dark = isDark();
+    var light = dark ? Math.round(20 + (1 - c) * 8) : Math.round(91 - c * 7);
+    var edgeL = dark ? 62 : 40;
+    var edgeA = 0.32 + c * 0.42;
+    return {
+      bg: "hsla(" + hue + "," + sat + "%," + light + "%," + alpha.toFixed(3) + ")",
+      edge: "hsla(" + hue + "," + sat + "%," + edgeL + "%," + edgeA.toFixed(3) + ")"
+    };
+  }
+
+  // ================= key + model =================
+  function loadKey() {
+    try { apiKey = localStorage.getItem(KEY_STORE) || null; } catch (e) { apiKey = null; }
+    renderKeyStatus();
+  }
+  function saveKey(k) { apiKey = k; try { localStorage.setItem(KEY_STORE, k); } catch (e) {} renderKeyStatus(); }
+  function forgetKey() { apiKey = null; try { localStorage.removeItem(KEY_STORE); } catch (e) {} renderKeyStatus(); }
+  function renderKeyStatus() {
+    var has = !!apiKey;
+    keystatBtn.classList.toggle("ok", has);
+    keystatLabel.textContent = has ? ("key ·" + (apiKey.length > 6 ? apiKey.slice(-4) : "")) : "no key";
+  }
+
+  function initModels() {
+    var saved = null;
+    try { saved = localStorage.getItem(MODEL_STORE); } catch (e) {}
+    MODELS.forEach(function (m) {
+      var o = document.createElement("option");
+      o.value = m.id; o.textContent = m.label;
+      modelSel.appendChild(o);
+    });
+    currentModelId = MODELS.some(function (m) { return m.id === saved; }) ? saved : MODELS[0].id;
+    modelSel.value = currentModelId;
+  }
+  function currentModel() {
+    for (var i = 0; i < MODELS.length; i++) if (MODELS[i].id === currentModelId) return MODELS[i];
+    return MODELS[0];
+  }
+  modelSel.addEventListener("change", function () {
+    currentModelId = modelSel.value;
+    try { localStorage.setItem(MODEL_STORE, currentModelId); } catch (e) {}
+  });
+
+  // ================= memory store =================
+  function loadMemory() {
+    var raw = null;
+    try { raw = localStorage.getItem(MEM_STORE); } catch (e) {}
+    if (raw) {
+      try {
+        var arr = JSON.parse(raw);
+        if (Array.isArray(arr)) {
+          memory = arr.filter(function (m) { return m && m.id && typeof m.text === "string"; }).map(function (m) {
+            return {
+              id: m.id, text: m.text,
+              confidence: clamp01(m.confidence), sensitivity: clamp01(m.sensitivity),
+              category: m.category || "note", updatedAt: m.updatedAt || Date.now()
+            };
+          });
+        }
+      } catch (e) { memory = []; }
+    }
+    memory.forEach(function (m) {
+      var n = parseInt(String(m.id).replace(/\D/g, ""), 10);
+      if (isFinite(n) && n > memSeq) memSeq = n;
+    });
+  }
+  function persistMemory() { try { localStorage.setItem(MEM_STORE, JSON.stringify(memory)); } catch (e) {} }
+  function getMem(id) { for (var i = 0; i < memory.length; i++) if (memory[i].id === id) return memory[i]; return null; }
+  function newMemId() { memSeq += 1; return "mem-" + memSeq; }
+
+  function applyOperations(ops) {
+    if (!Array.isArray(ops)) return [];
+    var touched = [];
+    ops.forEach(function (op) {
+      if (!op || !op.text || !String(op.text).trim()) return;
+      var text = String(op.text).trim();
+      var conf = clamp01(op.confidence), sens = clamp01(op.sensitivity);
+      var cat = (op.category || "note").toString().toLowerCase().replace(/[^a-z]/g, "").slice(0, 16) || "note";
+      if (op.op === "update" && op.id && getMem(op.id)) {
+        var m = getMem(op.id);
+        m.text = text; m.confidence = conf; m.sensitivity = sens; m.category = cat; m.updatedAt = Date.now();
+        touched.push(m.id);
+      } else {
+        var entry = { id: newMemId(), text: text, confidence: conf, sensitivity: sens, category: cat, updatedAt: Date.now() };
+        memory.push(entry);
+        touched.push(entry.id);
+      }
+    });
+    persistMemory();
+    return touched;
+  }
+
+  function forgetMem(id) {
+    var i = -1;
+    for (var k = 0; k < memory.length; k++) if (memory[k].id === id) { i = k; break; }
+    if (i >= 0) { memory.splice(i, 1); persistMemory(); renderMemory([]); }
+  }
+  function editMemText(id, text) {
+    var m = getMem(id);
+    if (!m) return;
+    m.text = String(text).trim() || m.text;
+    m.confidence = 1;              // a fact you corrected by hand is certain
+    m.updatedAt = Date.now();
+    persistMemory();
+    renderMemory([id]);
+  }
+
+  function renderMemory(fresh) {
+    fresh = fresh || [];
+    memCountEl.textContent = String(memory.length);
+    storeEmptyEl.style.display = memory.length ? "none" : "block";
+    // wipe existing cards (keep the empty node)
+    var cards = storeListEl.querySelectorAll(".mem, .mem-edit");
+    for (var i = 0; i < cards.length; i++) storeListEl.removeChild(cards[i]);
+
+    var ordered = memory.slice().sort(function (a, b) { return b.updatedAt - a.updatedAt; });
+    ordered.forEach(function (m) {
+      storeListEl.appendChild(memCard(m, fresh.indexOf(m.id) >= 0));
+    });
+  }
+
+  function memCard(m, isFresh) {
+    var sh = shadeFor(m.confidence, m.sensitivity);
+    var el = document.createElement("div");
+    el.className = "mem" + (isFresh ? " fresh" : "");
+    el.style.background = sh.bg;
+    el.style.borderLeftColor = sh.edge;
+
+    var text = document.createElement("div");
+    text.className = "text"; text.textContent = m.text;
+
+    var meta = document.createElement("div");
+    meta.className = "meta";
+    var cat = document.createElement("span"); cat.className = "cat"; cat.textContent = m.category;
+    var conf = document.createElement("span"); conf.className = "gauge";
+    conf.textContent = "conf " + Math.round(m.confidence * 100) + "%";
+    var sens = document.createElement("span"); sens.className = "gauge";
+    sens.textContent = "sens " + Math.round(m.sensitivity * 100) + "%";
+    var acts = document.createElement("span"); acts.className = "acts";
+    var editBtn = document.createElement("button"); editBtn.textContent = "edit"; editBtn.title = "Correct this memory";
+    var forgetBtn = document.createElement("button"); forgetBtn.className = "forget"; forgetBtn.textContent = "forget"; forgetBtn.title = "Remove this memory";
+    acts.appendChild(editBtn); acts.appendChild(forgetBtn);
+    meta.appendChild(cat); meta.appendChild(conf); meta.appendChild(sens); meta.appendChild(acts);
+
+    el.appendChild(text); el.appendChild(meta);
+
+    forgetBtn.addEventListener("click", function () { forgetMem(m.id); });
+    editBtn.addEventListener("click", function () { el.parentNode.replaceChild(editCard(m), el); });
+    return el;
+  }
+
+  function editCard(m) {
+    var el = document.createElement("div");
+    el.className = "mem mem-edit";
+    var sh = shadeFor(m.confidence, m.sensitivity);
+    el.style.background = sh.bg; el.style.borderLeftColor = sh.edge;
+
+    var ta = document.createElement("textarea");
+    ta.value = m.text; ta.spellcheck = false;
+    var row = document.createElement("div"); row.className = "row";
+    var save = document.createElement("button"); save.className = "save"; save.textContent = "save";
+    var cancel = document.createElement("button"); cancel.textContent = "cancel";
+    var hint = document.createElement("span"); hint.className = "hint"; hint.textContent = "saving marks this certain";
+    row.appendChild(save); row.appendChild(cancel); row.appendChild(hint);
+    el.appendChild(ta); el.appendChild(row);
+
+    save.addEventListener("click", function () { editMemText(m.id, ta.value); });
+    cancel.addEventListener("click", function () { renderMemory([]); });
+    setTimeout(function () { ta.focus(); }, 20);
+    return el;
+  }
+
+  $("mem-clear").addEventListener("click", function () {
+    if (!memory.length) return;
+    if (!window.confirm("Forget everything the assistant has remembered?")) return;
+    memory = []; persistMemory(); renderMemory([]);
+    setStatus("Memory cleared.");
+  });
+
+  function memoryForPrompt() {
+    if (!memory.length) return "(empty — nothing remembered yet)";
+    return memory.map(function (m) {
+      return "[" + m.id + "] (confidence " + m.confidence.toFixed(2) + ", sensitivity " +
+        m.sensitivity.toFixed(2) + ", " + m.category + ") " + m.text;
+    }).join("\n");
+  }
+
+  function buildLegend() {
+    var grid = $("legend-grid");
+    // rows: top = high sensitivity; cols: left = low confidence
+    for (var r = 4; r >= 0; r--) {
+      for (var c = 0; c < 5; c++) {
+        var sw = document.createElement("span");
+        sw.style.background = shadeFor(c / 4, r / 4).bg;
+        grid.appendChild(sw);
+      }
+    }
+  }
+
+  // ================= transcript =================
+  function addMessage(role, text) {
+    chatEmptyEl.style.display = "none";
+    var wrap = document.createElement("div");
+    wrap.className = "msg " + role;
+    var who = document.createElement("div"); who.className = "who"; who.textContent = role === "user" ? "you" : "assistant";
+    var bubble = document.createElement("div"); bubble.className = "bubble"; bubble.textContent = text;
+    wrap.appendChild(who); wrap.appendChild(bubble);
+    transcriptEl.appendChild(wrap);
+    transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    return bubble;
+  }
+  function setStatus(html) { statusEl.innerHTML = html; }
+
+  // ================= API =================
+  function ApiError(status, body) { this.status = status; this.body = body; }
+  function friendlyError(err) {
+    if (err instanceof ApiError) {
+      var msg = err.body && err.body.error && err.body.error.message ? err.body.error.message : "";
+      if (err.status === 401) return "API key rejected (401). Open the key panel and re-enter a valid key.";
+      if (err.status === 403) return "Access denied (403). This key may not have access to " + currentModel().label + ".";
+      if (err.status === 404) return "Not found (404). " + (msg || "The model id may be unavailable to this key.");
+      if (err.status === 429) return "Rate limited (429). Wait a moment, then try again.";
+      if (err.status === 400) return "Request rejected (400). " + (msg || "");
+      if (err.status >= 500) return "Anthropic service error (" + err.status + "). Retry shortly.";
+      return "API error " + err.status + (msg ? ": " + msg : "");
+    }
+    if (err && err.name === "AbortError") return "Stopped.";
+    return "Network error: " + String(err && err.message ? err.message : err) +
+      " (a browser extension or ad-blocker can block api.anthropic.com).";
+  }
+
+  function apiHeaders() {
+    return {
+      "content-type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": ANTHROPIC_VERSION,
+      "anthropic-dangerous-direct-browser-access": "true"
+    };
+  }
+
+  // Streaming chat call. Memory is injected into the system prompt every turn.
+  function streamChat(onText) {
+    var model = currentModel();
+    var system = CHAT_SYSTEM_BASE + "\n\nWhat you currently remember about the user:\n" + memoryForPrompt();
+    var body = {
+      model: model.id,
+      max_tokens: 2048,
+      system: system,
+      messages: chat.map(function (m) { return { role: m.role, content: m.content }; }),
+      stream: true
+    };
+    if (model.thinking) body.thinking = model.thinking;
+
+    abortCtl = new AbortController();
+    return fetch(API_URL, { method: "POST", headers: apiHeaders(), body: JSON.stringify(body), signal: abortCtl.signal })
+      .then(function (resp) {
+        if (!resp.ok) {
+          return resp.json().catch(function () { return null; }).then(function (j) { throw new ApiError(resp.status, j); });
+        }
+        var reader = resp.body.getReader(), dec = new TextDecoder(), buf = "", text = "";
+        function handle(dataStr) {
+          var evt; try { evt = JSON.parse(dataStr); } catch (e) { return; }
+          if (evt.type === "content_block_delta" && evt.delta && evt.delta.type === "text_delta") {
+            text += evt.delta.text; if (onText) onText(evt.delta.text);
+          } else if (evt.type === "error") {
+            throw new ApiError((evt.error && evt.error.status) || 0, evt);
+          }
+        }
+        function pump() {
+          return reader.read().then(function (res) {
+            if (res.done) return text;
+            buf += dec.decode(res.value, { stream: true });
+            var idx;
+            while ((idx = buf.indexOf("\n")) >= 0) {
+              var line = buf.slice(0, idx).replace(/\r$/, ""); buf = buf.slice(idx + 1);
+              if (line.indexOf("data:") === 0) {
+                var payload = line.slice(5).trim();
+                if (payload && payload !== "[DONE]") handle(payload);
+              }
+            }
+            return pump();
+          });
+        }
+        return pump();
+      });
+  }
+
+  // Non-streaming extraction call: force the commit_memory tool and read its operations.
+  function extractMemory(userText, assistantText) {
+    var model = currentModel();
+    var prompt =
+      "Current memory:\n" + memoryForPrompt() + "\n\n" +
+      "Latest exchange:\nUser: " + userText + "\nAssistant: " + assistantText + "\n\n" +
+      "Record any durable facts about the user via commit_memory. Update existing entries by id where they refine or " +
+      "contradict what's stored; otherwise add. If nothing durable, return an empty operations array.";
+    var body = {
+      model: model.id,
+      max_tokens: 1024,
+      system: EXTRACT_SYSTEM,
+      messages: [{ role: "user", content: prompt }],
+      tools: [EXTRACT_TOOL],
+      tool_choice: { type: "tool", name: "commit_memory" }
+    };
+    if (model.thinking) body.thinking = model.thinking;
+
+    return fetch(API_URL, { method: "POST", headers: apiHeaders(), body: JSON.stringify(body) })
+      .then(function (resp) {
+        if (!resp.ok) {
+          return resp.json().catch(function () { return null; }).then(function (j) { throw new ApiError(resp.status, j); });
+        }
+        return resp.json();
+      })
+      .then(function (data) {
+        var ops = [];
+        var blocks = (data && data.content) || [];
+        for (var i = 0; i < blocks.length; i++) {
+          if (blocks[i].type === "tool_use" && blocks[i].name === "commit_memory" && blocks[i].input) {
+            ops = blocks[i].input.operations || [];
+            break;
+          }
+        }
+        return ops;
+      });
+  }
+
+  // ================= turn =================
+  function send() {
+    if (busy) { if (abortCtl) abortCtl.abort(); return; }
+    var text = composerEl.value.trim();
+    if (!text) return;
+    if (!apiKey) { openKeyModal(); return; }
+    composerEl.value = ""; autosize();
+    chat.push({ role: "user", content: text });
+    addMessage("user", text);
+    runTurn(text);
+  }
+
+  function runTurn(userText) {
+    busy = true; setSending(true);
+    setStatus("<span class='spin'>◜</span> " + currentModel().label + " is replying…");
+    var bubble = null, acc = "";
+
+    streamChat(function (t) {
+      if (!bubble) bubble = addMessage("assistant", "");
+      acc += t; bubble.textContent = acc;
+      transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    }).then(function (full) {
+      var reply = (full || acc || "").trim();
+      if (!bubble && reply) addMessage("assistant", reply);
+      chat.push({ role: "assistant", content: reply });
+      // extraction pass
+      setStatus("<span class='spin'>◜</span> Updating memory…");
+      return extractMemory(userText, reply);
+    }).then(function (ops) {
+      var touched = applyOperations(ops);
+      renderMemory(touched);
+      if (touched.length) setStatus(touched.length + " memory " + (touched.length > 1 ? "entries" : "entry") + " updated.");
+      else setStatus("No durable facts this turn.");
+      finish();
+    }).catch(function (err) {
+      var msg = friendlyError(err);
+      // A chat that streamed fine but failed at extraction still leaves a valid transcript.
+      if (acc && bubble) { setStatus("Reply kept; memory update failed — " + msg); }
+      else { addMessage("assistant", "⚠ " + msg); setStatus(""); }
+      if (err instanceof ApiError && err.status === 401) openKeyModal();
+      // keep chat consistent: if the assistant turn never landed, drop the dangling user turn's expectation
+      if (!acc && chat.length && chat[chat.length - 1].role === "user") { /* leave user turn; user can retry */ }
+      finish();
+    });
+  }
+
+  function finish() { busy = false; setSending(false); abortCtl = null; }
+
+  function setSending(on) {
+    sendBtn.textContent = on ? "Stop" : "Send";
+    sendBtn.classList.toggle("stop", on);
+    sendBtn.disabled = false;
+  }
+
+  // ================= composer =================
+  sendBtn.addEventListener("click", send);
+  composerEl.addEventListener("keydown", function (e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); send(); }
+  });
+  function autosize() {
+    composerEl.style.height = "auto";
+    composerEl.style.height = Math.min(128, composerEl.scrollHeight) + "px";
+  }
+  composerEl.addEventListener("input", autosize);
+
+  // ================= modals =================
+  function openKeyModal() {
+    $("key-input").value = apiKey || "";
+    $("key-err").textContent = "";
+    $("key-scrim").classList.add("open");
+    setTimeout(function () { $("key-input").focus(); }, 30);
+  }
+  function closeKeyModal() { $("key-scrim").classList.remove("open"); }
+  keystatBtn.addEventListener("click", openKeyModal);
+  $("key-save").addEventListener("click", function () {
+    var v = $("key-input").value.trim();
+    if (!v) { $("key-err").textContent = "Enter a key, or use Forget key to clear it."; return; }
+    if (v.indexOf("sk-ant-") !== 0) {
+      $("key-err").textContent = "That doesn't look like an Anthropic key (they start with sk-ant-). Saving anyway is allowed, but check it if calls fail.";
+    }
+    saveKey(v); closeKeyModal(); setStatus("Key saved locally.");
+  });
+  $("key-forget").addEventListener("click", function () {
+    forgetKey(); $("key-input").value = ""; $("key-err").textContent = ""; setStatus("Key forgotten (removed from this browser).");
+  });
+  $("help-btn").addEventListener("click", function () { $("help-scrim").classList.add("open"); });
+  $("help-close").addEventListener("click", function () { $("help-scrim").classList.remove("open"); });
+  [["key-scrim", closeKeyModal], ["help-scrim", function () { $("help-scrim").classList.remove("open"); }]].forEach(function (pair) {
+    $(pair[0]).addEventListener("click", function (e) { if (e.target === $(pair[0])) pair[1](); });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { closeKeyModal(); $("help-scrim").classList.remove("open"); }
+  });
+
+  // re-shade on light/dark switch
+  if (window.matchMedia) {
+    var mq = window.matchMedia("(prefers-color-scheme: dark)");
+    var reshade = function () {
+      $("legend-grid").innerHTML = ""; buildLegend(); renderMemory([]);
+    };
+    if (mq.addEventListener) mq.addEventListener("change", reshade);
+    else if (mq.addListener) mq.addListener(reshade);
+  }
+
+  // ================= boot =================
+  loadKey();
+  initModels();
+  loadMemory();
+  buildLegend();
+  renderMemory([]);
+  autosize();
+  if (!apiKey) setStatus("Bring your own Anthropic key to start — it stays in your browser. Click “no key” above.");
+  else setStatus("Ready. Say something about yourself.");
+})();
+</script>
+</body>
+</html>
