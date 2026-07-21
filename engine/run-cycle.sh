@@ -20,5 +20,14 @@
 # Halt everything: `npm run pause` (or `touch engine/PAUSED`).
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 if [ -s "$NVM_DIR/nvm.sh" ]; then . "$NVM_DIR/nvm.sh" >/dev/null 2>&1; fi
+# GOTCHA: nvm's default alias on this box is `lts/*`, which sourcing nvm.sh does NOT
+# resolve to a node on PATH in cron's bare environment — so `node`/`claude` go missing
+# and every tick dies with "flock: failed to execute node". Fallback: prepend the newest
+# installed node bin directly (no lts resolution, no network, survives an nvm upgrade —
+# it globs whatever's installed). claude lives in the same bin, so this covers both.
+command -v node >/dev/null 2>&1 || {
+  NODE_BIN="$(ls -d "$NVM_DIR"/versions/node/*/bin 2>/dev/null | sort -V | tail -1)"
+  [ -n "$NODE_BIN" ] && export PATH="$NODE_BIN:$PATH"
+}
 cd "$(dirname "$0")/.." || exit 1
 exec flock -n /tmp/whatupwolf-run-cycle.lock node engine/run-cycle.mjs >> engine/cycle.log 2>&1

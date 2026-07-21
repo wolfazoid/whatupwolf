@@ -19,5 +19,14 @@ if [ -z "$1" ]; then
 fi
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 if [ -s "$NVM_DIR/nvm.sh" ]; then . "$NVM_DIR/nvm.sh" >/dev/null 2>&1; fi
+# GOTCHA: nvm's default alias on this box is `lts/*`, which sourcing nvm.sh does NOT
+# resolve to a node on PATH in cron's bare environment — so `node`/`claude` go missing
+# and the run dies with "node: not found" (silently, on a Sunday no one is watching —
+# the exact failure this wrapper was meant to prevent). Fallback: prepend the newest
+# installed node bin directly (no lts resolution, no network, survives an nvm upgrade).
+command -v node >/dev/null 2>&1 || {
+  NODE_BIN="$(ls -d "$NVM_DIR"/versions/node/*/bin 2>/dev/null | sort -V | tail -1)"
+  [ -n "$NODE_BIN" ] && export PATH="$NODE_BIN:$PATH"
+}
 cd "$(dirname "$0")/.." || exit 1
 exec node engine/run-experiment.mjs "$1" >> engine/experiment.log 2>&1
