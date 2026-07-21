@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { parseBacklog, pickNextItem, markItemDone } from './lib.mjs';
 import { slugify, renderLabEntry, parseCycleReport, parsePrivateReport, resolveStatus, draftForType } from './lib.mjs';
+import { newLabEntriesInStatus } from './lib.mjs';
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { branchForItem, pickBuildableItem, prListArgs } from './lib.mjs';
@@ -471,5 +472,36 @@ describe('uniqueBranchName', () => {
   it('throws rather than looping forever if every name is somehow taken', () => {
     const taken = ['lab/x', ...Array.from({ length: 98 }, (_, i) => `lab/x-${i + 2}`)];
     expect(() => uniqueBranchName('lab/x', taken)).toThrow(/no free branch name/);
+  });
+});
+
+describe('newLabEntriesInStatus', () => {
+  it('finds an untracked (??) Lab entry the machine authored', () => {
+    const status = '?? src/content/lab/2026-07-21-build-the-generative-ui-canvas.md';
+    expect(newLabEntriesInStatus(status)).toEqual(['src/content/lab/2026-07-21-build-the-generative-ui-canvas.md']);
+  });
+  it('finds a staged (A) Lab entry too', () => {
+    expect(newLabEntriesInStatus('A  src/content/lab/foo.md')).toEqual(['src/content/lab/foo.md']);
+  });
+  it('returns [] for a pure-engine cycle that added no Lab entry', () => {
+    const status = ' M engine/lib.mjs\n M engine/run-cycle.mjs\n?? engine/.run.lock';
+    expect(newLabEntriesInStatus(status)).toEqual([]);
+  });
+  it('ignores a mere EDIT to an existing Lab entry (only new files count)', () => {
+    expect(newLabEntriesInStatus(' M src/content/lab/hello-lab.md')).toEqual([]);
+  });
+  it('ignores new files outside src/content/lab and non-markdown files', () => {
+    const status = '?? src/content/tools/generative-ui.md\n?? src/content/lab/notes.txt\n?? public/tools/x.html';
+    expect(newLabEntriesInStatus(status)).toEqual([]);
+  });
+  it('collects multiple new entries and tolerates blank lines', () => {
+    const status = '?? src/content/lab/a.md\n\n?? src/content/lab/b.md\n';
+    expect(newLabEntriesInStatus(status)).toEqual(['src/content/lab/a.md', 'src/content/lab/b.md']);
+  });
+  it('strips the quotes porcelain adds around unusual paths', () => {
+    expect(newLabEntriesInStatus('?? "src/content/lab/a b.md"')).toEqual(['src/content/lab/a b.md']);
+  });
+  it('handles empty input', () => {
+    expect(newLabEntriesInStatus('')).toEqual([]);
   });
 });
