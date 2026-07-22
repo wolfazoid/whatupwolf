@@ -15,11 +15,11 @@ touch no other file, and do no git.
 
 ## What to write
 
-Append to the END of `engine/IDEAS.md` exactly one section headed with today's date as a
+Append to the END of `engine/IDEAS.md` exactly one section headed with the date the runner gave you (the `THIS SWEEP'S DATE` value) as a
 bare `## YYYY-MM-DD` line, with two groups of plain `-` bullets (NOT `- [ ]`):
 
 ```
-## <today's date, YYYY-MM-DD>
+## <THIS SWEEP'S DATE, YYYY-MM-DD>
 
 ### Ideas (dreamed up)
 - <a genuinely interesting new feature, tool, experiment, or direction — one line;

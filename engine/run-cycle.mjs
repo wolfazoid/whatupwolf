@@ -145,13 +145,14 @@ function buildPrompt(task) {
   ].join('\n');
 }
 
-function buildIdeatePrompt() {
+function buildIdeatePrompt(today) {
   const manual = readFileSync(IDEATE_MANUAL, 'utf8');
   return [
     'You are the whatupwolf lab engine running one IDLE IDEATION sweep.',
     'The backlog is empty, so instead of building code you are dreaming up work.',
     'Operating manual (follow it exactly):',
     '', manual, '',
+    `THIS SWEEP'S DATE: ${today}. Use this EXACT value for the "## YYYY-MM-DD" section heading — do not infer the date yourself.`,
   ].join('\n');
 }
 
@@ -189,7 +190,7 @@ function runIdleIdeation() {
 
   if (existsSync(REPORT)) rmSync(REPORT);
   try {
-    execFileSync('claude', ['-p', buildIdeatePrompt(), '--dangerously-skip-permissions'],
+    execFileSync('claude', ['-p', buildIdeatePrompt(today), '--dangerously-skip-permissions'],
       { cwd: REPO_DIR, stdio: 'inherit' });
   } catch (err) {
     throw new Error(`claude exited with an error during ideation (${err.message})`);
