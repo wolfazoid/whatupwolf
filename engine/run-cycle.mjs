@@ -6,6 +6,7 @@ import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickBuildableItem, prListArgs, markItemDone, slugify, renderLabEntry, parseCycleReport,
   resolveStatus, shortTitle, draftForType, lockIsFree, newLabEntriesInStatus,
+  latestIdeaDate, ideasBranch,
 } from './lib.mjs';
 import { publishBranch } from './publish.mjs';
 
@@ -16,6 +17,8 @@ const CYCLE = join(ENGINE_DIR, 'CYCLE.md');
 const REPORT = join(ENGINE_DIR, '.cycle-report.json');
 const PAUSED = join(ENGINE_DIR, 'PAUSED');
 const LOCK = join(ENGINE_DIR, '.run.lock');
+const IDEAS = join(ENGINE_DIR, 'IDEAS.md');
+const IDEATE_MANUAL = join(ENGINE_DIR, 'IDEATE.md');
 const GH_USER = 'wolfazoid';
 const DRY = process.argv.includes('--dry-run');
 
@@ -142,6 +145,85 @@ function buildPrompt(task) {
   ].join('\n');
 }
 
+function buildIdeatePrompt() {
+  const manual = readFileSync(IDEATE_MANUAL, 'utf8');
+  return [
+    'You are the whatupwolf lab engine running one IDLE IDEATION sweep.',
+    'The backlog is empty, so instead of building code you are dreaming up work.',
+    'Operating manual (follow it exactly):',
+    '', manual, '',
+  ].join('\n');
+}
+
+// The empty-backlog path. Instead of a bare exit, once a day the loop dreams up
+// work: it appends a dated section of ideas + grounded repo opportunities to
+// engine/IDEAS.md and opens a PR (which auto-merges on green CI — engine/* is in
+// the guard allowlist). Guarded twice so the hourly loop can't regenerate every
+// hour: skip if IDEAS.md already carries today's section (the merged case), or if
+// today's lab/ideas-<date> branch already has a PR (the in-flight case, before the
+// PR merges). No Lab entry — this is an internal ops note, not a public post.
+function runIdleIdeation() {
+  const today = new Date().toISOString().slice(0, 10);
+  const ideasMd = existsSync(IDEAS) ? readFileSync(IDEAS, 'utf8') : '';
+  if (latestIdeaDate(ideasMd) === today) {
+    console.log(`Idle: an idea sweep already ran today (${today}) — nothing to do.`);
+    return;
+  }
+  const branch = ideasBranch(today);
+  if (branchHasPr(branch)) {
+    console.log(`Idle: today's idea sweep (${branch}) already has a PR — skipping.`);
+    return;
+  }
+
+  if (DRY) {
+    console.log(`Idle: backlog empty — would run the daily idea sweep on ${branch}.`);
+    console.log('[dry-run] would checkout', branch);
+    console.log('[dry-run] would invoke: claude -p <IDEATE prompt> --dangerously-skip-permissions');
+    console.log(`[dry-run] the sweep would append a "## ${today}" section to engine/IDEAS.md`);
+    console.log('[dry-run] would commit + open a PR (no Lab entry)');
+    return;
+  }
+
+  console.log(`Idle: backlog empty — running the daily idea sweep on ${branch}.`);
+  sh('git', ['checkout', '-B', branch]);
+
+  if (existsSync(REPORT)) rmSync(REPORT);
+  try {
+    execFileSync('claude', ['-p', buildIdeatePrompt(), '--dangerously-skip-permissions'],
+      { cwd: REPO_DIR, stdio: 'inherit' });
+  } catch (err) {
+    throw new Error(`claude exited with an error during ideation (${err.message})`);
+  }
+  if (!existsSync(REPORT)) {
+    throw new Error(`no cycle report was written to ${REPORT}`);
+  }
+  const report = parseCycleReport(readFileSync(REPORT, 'utf8'));
+
+  // Independent verify gate. An idle sweep should touch only engine/IDEAS.md, so
+  // the checks pass trivially; kept for consistency, and a failure (the machine
+  // edited code it shouldn't have) flags the PR instead of shipping it quietly.
+  const testsPassed = gate('npm', ['test']);
+  const checkPassed = gate('npm', ['run', 'check']);
+  const gateFailed = !testsPassed || !checkPassed;
+  report.status = resolveStatus(report.status, testsPassed, checkPassed);
+  if (existsSync(REPORT)) rmSync(REPORT);
+
+  const prTitle = `${gateFailed ? '[FLAGGED] ' : ''}lab: idea sweep — ${today}`;
+  const prBody = gateFailed
+    ? `⚠️ The verify gate failed — an idle idea sweep should only touch engine/IDEAS.md. Review before merge.\n\n${report.summary}`
+    : report.summary;
+  publishBranch({
+    repoDir: REPO_DIR,
+    branch,
+    commitMsg: `lab: idea sweep — ${today}`,
+    prTitle,
+    prBody,
+    ghUser: GH_USER,
+    dry: DRY,
+  });
+  console.log('Idle ideation complete — PR opened for review.');
+}
+
 function main() {
   // 0. Kill switch (local, instant) — checked before any git/network work, so a
   // `touch engine/PAUSED` (or `npm run pause`) stops the loop even if git is hung.
@@ -182,7 +264,11 @@ function runCycleLocked() {
   const backlogMd = readFileSync(BACKLOG, 'utf8');
   const items = parseBacklog(backlogMd);
   const picked = pickNextBuildable(items);
-  if (!picked) { console.log('Nothing buildable — the backlog is empty or every unchecked item has already been built into a PR.'); return; }
+  if (!picked) {
+    console.log('Nothing buildable — the backlog is empty or every unchecked item has already been built into a PR.');
+    runIdleIdeation();
+    return;
+  }
   const { item, branch } = picked;
   const short = shortTitle(item.title);
   const slug = slugify(short);
