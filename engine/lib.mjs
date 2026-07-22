@@ -301,3 +301,25 @@ export function newLabEntriesInStatus(porcelain) {
   }
   return out;
 }
+
+// The newest dated section in the idea inbox (engine/IDEAS.md), or null when
+// there are none yet. Each idle sweep heads its block with a bare `## YYYY-MM-DD`
+// line; the runner compares this to today so an empty-backlog loop dreams up work
+// at most once a day instead of every hourly tick. ISO dates sort lexicographically,
+// so a plain string `>` is the chronological max. Pure — the caller reads the file
+// (or passes '' before it exists).
+export function latestIdeaDate(ideasMd) {
+  let latest = null;
+  for (const line of String(ideasMd).split('\n')) {
+    const m = line.match(/^##\s+(\d{4}-\d{2}-\d{2})\s*$/);
+    if (m && (latest === null || m[1] > latest)) latest = m[1];
+  }
+  return latest;
+}
+
+// The branch an idle idea sweep publishes on, keyed by date (mirrors the
+// experiment branch convention, lab/agent-weekly-<date>). Same-day re-runs reuse
+// the name, and the runner's branchHasPr guard then skips a sweep already in flight.
+export function ideasBranch(date) {
+  return `lab/ideas-${date}`;
+}

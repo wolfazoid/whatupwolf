@@ -6,6 +6,7 @@ import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.m
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { branchForItem, pickBuildableItem, prListArgs } from './lib.mjs';
 import { lockIsFree } from './lib.mjs';
+import { latestIdeaDate, ideasBranch } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -503,5 +504,31 @@ describe('newLabEntriesInStatus', () => {
   });
   it('handles empty input', () => {
     expect(newLabEntriesInStatus('')).toEqual([]);
+  });
+});
+
+describe('latestIdeaDate', () => {
+  it('returns null when there are no dated sections', () => {
+    expect(latestIdeaDate('# Idea Inbox\n\nsome preamble, no dates yet')).toBeNull();
+  });
+  it('returns the only dated section', () => {
+    expect(latestIdeaDate('## 2026-07-21\n\n### Ideas\n- a thing')).toBe('2026-07-21');
+  });
+  it('returns the NEWEST date regardless of file order', () => {
+    const md = '## 2026-07-19\n- old\n\n## 2026-07-21\n- new\n\n## 2026-07-20\n- mid';
+    expect(latestIdeaDate(md)).toBe('2026-07-21');
+  });
+  it('ignores headings that are not a bare ## date', () => {
+    const md = '## Triaged\n## 2026-07-18 (notes)\n### 2026-99-99\n## 2026-07-18';
+    expect(latestIdeaDate(md)).toBe('2026-07-18');
+  });
+  it('handles empty input', () => {
+    expect(latestIdeaDate('')).toBeNull();
+  });
+});
+
+describe('ideasBranch', () => {
+  it('builds the dated idea-sweep branch', () => {
+    expect(ideasBranch('2026-07-21')).toBe('lab/ideas-2026-07-21');
   });
 });
