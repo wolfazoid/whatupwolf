@@ -29,6 +29,21 @@ drops the failed attempt's uncommitted scratch (`git checkout -f main` + `git cl
 respect `.gitignore`, so `PAUSED`, `cron.log`, `node_modules`, and `.env` are left untouched;
 the next run therefore always starts from a known-good `main`.
 
+## Idle ideation (empty-backlog digest)
+
+When an hourly `run-cycle` tick finds nothing buildable, instead of exiting it runs a
+**once-daily idea sweep**: a headless `claude` run (manual: `engine/IDEATE.md`) reads the
+repo and appends a dated section of **Ideas** + grounded **Opportunities** to
+`engine/IDEAS.md`, then opens a PR that auto-merges on green CI (engine/* is allowlisted).
+It fires at most once per calendar day — guarded by the newest `## YYYY-MM-DD` section in
+`IDEAS.md` and by `branchHasPr('lab/ideas-<date>')` for the window while today's PR is
+still open. No Lab entry is produced (internal only).
+
+**Triage:** read `engine/IDEAS.md` each morning. **Queue** an idea by copying it into
+`BACKLOG.md` as a `- [ ]` task (and delete it from the inbox); **reject** one by moving it
+to `engine/IDEAS-rejected.md` (the next sweep won't re-propose it); **ignore** by leaving
+it. `npm run pause` halts the loop (and thus ideation) like any other cycle.
+
 ## Git auth
 
 Push/PR use the `wolfazoid` GitHub account (the default account here has no push access).
