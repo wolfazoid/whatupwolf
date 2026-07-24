@@ -22,6 +22,12 @@ export const EXPERIMENTS = {
   // draftForType() gates behind draft:true — Wolf's review of the ranked
   // prototype shortlist IS the publishing gate.
   'interaction-landscape': { kind: 'digest', type: 'briefing', titlePrefix: 'Interaction Landscape' },
+  // One-shot: run by hand, not on cron. The infra counterpart to the sprint
+  // above — that one asked "what's worth prototyping", this asks "what would it
+  // take to host the ones that need a server". Also `type: briefing`, so the
+  // ranked options land as a draft and Wolf reviews them before any infra
+  // decision is made.
+  'app-subdomain': { kind: 'digest', type: 'briefing', titlePrefix: 'App Subdomain' },
   // The recurring counterpart to the one-shot sprint above: a lighter monthly
   // sweep that keeps the interaction landscape fresh once the survey has run.
   // Renders as `type: digest` — a factual machine-log post, so it publishes direct.
