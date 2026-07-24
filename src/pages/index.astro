@@ -1,6 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
 import LabEntry from '../components/LabEntry.astro';
+import LevelBlock from '../components/LevelBlock.astro';
 import { getCollection } from 'astro:content';
 
 const lab = (await getCollection('lab'))
@@ -11,11 +12,21 @@ const latest = lab.slice(0, 3);
 <Base title="whatupwolf — personal lab">
   <section>
     <h1 class="text-2xl font-semibold tracking-tight">Hey — I'm Wolf.</h1>
-    <p class="mt-3 text-[var(--color-muted)] leading-relaxed">
+    <LevelBlock levels="technical" as="p" class="mt-3 text-[var(--color-muted)] leading-relaxed">
       I build headless commerce, agents, and always-on systems. This site is my
       <strong class="text-[var(--color-ink)]">laboratory</strong>: an always-on machine runs experiments
       and publishes them below as it works.
-    </p>
+    </LevelBlock>
+    <LevelBlock levels="aware" as="p" class="mt-3 text-[var(--color-muted)] leading-relaxed">
+      I build online storefronts, AI agents, and systems that run on their own. This site is my
+      <strong class="text-[var(--color-ink)]">laboratory</strong> — an automated machine runs experiments
+      and posts them below as it goes.
+    </LevelBlock>
+    <LevelBlock levels="plain" as="p" class="mt-3 text-[var(--color-muted)] leading-relaxed">
+      I build online shops and smart tools that keep working on their own. This site is my
+      <strong class="text-[var(--color-ink)]">workshop</strong>: a machine here tries things out and
+      shares what it makes, below, as it happens.
+    </LevelBlock>
     <a
       href="/now"
       class="chrome mt-4 inline-block border border-[var(--color-ink)] px-3 py-1.5 hover:bg-[var(--color-ink)] hover:!text-[var(--color-bg)] transition-colors"

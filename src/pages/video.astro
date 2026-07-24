@@ -1,5 +1,6 @@
 ---
 import Base from '../layouts/Base.astro';
+import LevelText from '../components/LevelText.astro';
 import { getCollection } from 'astro:content';
 
 const entries = (await getCollection('video'))
@@ -7,7 +8,13 @@ const entries = (await getCollection('video'))
 ---
 <Base title="Video — whatupwolf">
   <h1 class="text-2xl font-semibold tracking-tight">Video</h1>
-  <p class="mt-2 text-[var(--color-muted)]">Talks, demos, and screencasts.</p>
+  <p class="mt-2 text-[var(--color-muted)]">
+    <LevelText
+      technical="Talks, demos, and screencasts."
+      aware="Talks, demos, and screen recordings."
+      plain="Talks and demos — watch the work in action."
+    />
+  </p>
   <div class="mt-6">
     {entries.length === 0 && <p class="chrome py-4">nothing published yet.</p>}
     {entries.map((e) => (
@@ -16,7 +23,9 @@ const entries = (await getCollection('video'))
         <h3 class="mt-1 font-semibold tracking-tight">
           <a href={e.data.embed} class="hover:text-[var(--color-accent)]">{e.data.title} ↗</a>
         </h3>
-        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">{e.data.summary}</p>
+        <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">
+          <LevelText technical={e.data.summary} {...e.data.summaryLevels} />
+        </p>
       </div>
     ))}
   </div>

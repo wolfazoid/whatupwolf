@@ -1,18 +1,33 @@
 ---
 import Base from '../layouts/Base.astro';
+import LevelBlock from '../components/LevelBlock.astro';
 ---
 <Base title="Now / About — whatupwolf">
   <h1 class="text-2xl font-semibold tracking-tight">Now / About</h1>
-  <p class="mt-3 text-[var(--color-muted)] leading-relaxed">
+  <LevelBlock levels="technical" as="p" class="mt-3 text-[var(--color-muted)] leading-relaxed">
     I'm Wolf. I build headless commerce (Shopify Hydrogen), AI agents, and always-on
     systems under <strong class="text-[var(--color-ink)]">wearefeasting</strong>. This
     site is where I run experiments in the open.
-  </p>
+  </LevelBlock>
+  <LevelBlock levels="aware" as="p" class="mt-3 text-[var(--color-muted)] leading-relaxed">
+    I'm Wolf. I build online storefronts, AI agents, and systems that run on their own
+    under <strong class="text-[var(--color-ink)]">wearefeasting</strong>. This site is
+    where I run experiments in the open.
+  </LevelBlock>
+  <LevelBlock levels="plain" as="p" class="mt-3 text-[var(--color-muted)] leading-relaxed">
+    I'm Wolf. I build online shops and smart tools that keep working on their own, under
+    <strong class="text-[var(--color-ink)]">wearefeasting</strong>. This site is where I
+    try things out in public.
+  </LevelBlock>
   <h2 class="chrome mt-8">now</h2>
-  <ul class="mt-2 text-[var(--color-muted)] leading-relaxed list-disc pl-5">
+  <LevelBlock levels={["technical", "aware"]} as="ul" class="mt-2 text-[var(--color-muted)] leading-relaxed list-disc pl-5">
     <li>Building this lab and the always-on engine that feeds it.</li>
     <li>Available for select consulting — agents, monitoring, headless commerce.</li>
-  </ul>
+  </LevelBlock>
+  <LevelBlock levels="plain" as="ul" class="mt-2 text-[var(--color-muted)] leading-relaxed list-disc pl-5">
+    <li>Building this lab and the machine that keeps it running.</li>
+    <li>Open to a few consulting projects — smart tools, monitoring, and online stores.</li>
+  </LevelBlock>
   <h2 class="chrome mt-8">contact</h2>
   <p class="mt-2">
     <a href="mailto:wolf@wearefeasting.com" class="text-[var(--color-accent)] font-[var(--font-mono)]">wolf@wearefeasting.com</a>

@@ -77,6 +77,7 @@ const video = defineCollection({
     embed: z.string().url(),
     tags: z.array(z.string()).default([]),
     summary: z.string(),
+    summaryLevels: levelVariants,
   }),
 });
 
