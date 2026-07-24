@@ -138,6 +138,27 @@ renders as a `type: briefing` entry, which `draftForType()` gates behind `draft:
 Wolf's review of the shortlist is the gate, so nothing publishes unreviewed. Re-run it
 whenever the landscape has moved enough to be worth re-surveying.
 
+**App Subdomain** is the other **one-shot** sprint — also run by hand, also not on the
+schedule below:
+
+```bash
+node engine/run-experiment.mjs app-subdomain --dry-run   # preview
+node engine/run-experiment.mjs app-subdomain             # real run
+```
+
+It is the infra counterpart to Interaction Landscape: that sprint asked *what is worth
+prototyping*, this one asks *what it would take to host the candidates that need a server*.
+It surveys the options for running real server-side / per-visitor LLM interaction alongside
+today's pure-static Cloudflare deploy (`assets.directory: ./dist`, no `main`) — Workers /
+Pages Functions / Durable Objects, a separate subdomain vs. an `/api` route, secret storage
+and rotation, the abuse surface that appears once an endpoint spends Wolf's tokens rather
+than the visitor's, cost at near-zero traffic, DNS, and what the guard allowlist would have
+to become — and prices what is **lost**: no server, no production secrets, no abuse surface.
+It ends in a ranked `## Options` section plus one explicit recommendation and the single
+prototype that would justify building it first. Like the sprint it renders as a
+`type: briefing` entry, so it lands as a **draft** — Wolf's review of the options is the gate
+before any infrastructure decision. It is research only; it provisions nothing.
+
 **Interaction Lab** is the recurring, lighter counterpart to that sprint: a **monthly**
 digest of what's new in how people interact with LLMs, covering the same nine areas but
 scoped to the past month and skipping the shortlist. It runs the same source-sweep

@@ -1,0 +1,12 @@
+---
+title: "Build the **App Subdomain** research sprint"
+date: 2026-07-24T20:02
+type: experiment
+status: done
+tags: [engine, experiment, infrastructure]
+live: true
+draft: false
+summary: "Added the App Subdomain one-shot research sprint: a briefing-type experiment that surveys what it would take to host server-side LLM interaction alongside the static Cloudflare deploy, ending in ranked options for Wolf's review."
+---
+
+Registered 'app-subdomain' as a `kind: digest` / `type: briefing` experiment and wrote engine/experiments/app-subdomain.md, an operating manual mirroring interaction-landscape.md's discipline (discovery-first WebSearch, verify every link, factual machine-log voice, no hype) but pointed at one question: what are the options for real server-side / per-visitor LLM interaction alongside the current deploy, and what does each cost in money, ops burden, and security surface. The prompt grounds the machine in the actual setup before it searches — wrangler.jsonc's `assets.directory: ./dist` with no `main`, the static astro.config.mjs, the Report-Only CSP in public/_headers, and the BYO-key tools whose on-page claim is literally that there is no backend — then holds it to the four known forcing cases (ephemeral voice tokens minted server-side, SIP for telephony, non-Anthropic keys that cannot ship in a bundle, and shortlist prototype #5 needing logit access rather than merely an endpoint). Coverage is mandated across Workers/Pages Functions/Durable Objects alongside vs. instead of static, subdomain vs. `/api` and what each does to the CSP and the BYO-key trust claim, secret storage and rotation, the abuse surface that appears once an endpoint spends Wolf's tokens instead of the visitor's, near-zero-traffic cost, DNS, and the guard allowlist — plus a required `## What is lost` section pricing today's no-server/no-secrets/no-abuse-surface property, and a closing ranked `## Options` list with one explicit recommendation and the single prototype that would justify building first. The key decision was to keep it strictly research: the prompt forbids touching config or provisioning anything, and `type: briefing` leaves draftForType() gating it as a draft — that gate is unchanged, so Wolf reviews before any infra decision. Verified `node engine/run-experiment.mjs app-subdomain --dry-run` previews a `type: briefing`, `draft: true` entry titled without a cadence and with no side effects; npm test (212 passed, registry suite now covers the new entry) and npm run check (0 errors) both pass.
