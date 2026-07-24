@@ -1,0 +1,1694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Voice Loop — a browser-only spoken loop around Claude, with the cascade timed</title>
+<meta name="description" content="A bring-your-own-key voice prototype that closes a full spoken loop around Claude using only the browser: SpeechRecognition in, speechSynthesis out, and a live per-stage latency budget for every turn. Push-to-talk and continuous turn-taking, barge-in, and the raw transcript shown alongside the conversation so mishearings stay visible. Your key stays in your browser. One file, no build step.">
+<style>
+  :root {
+    --paper: #f4f1ea;
+    --paper-2: #efeae0;
+    --card: #fbf9f4;
+    --ink: #1c1b17;
+    --ink-dim: #6d6a5f;
+    --line: #ddd7c8;
+    --line-strong: #cbc4b2;
+    --accent: #b8681a;
+    --accent-ink: #fffdf8;
+    --user: #2f6f52;
+    --ok: #3f7d3a;
+    --warn: #b23b2e;
+    --live: #b23b2e;
+    /* latency stage colours — kept distinct in both themes */
+    --s-asr: #4a7fa5;
+    --s-ttft: #b8681a;
+    --s-tts: #6b8f3d;
+    --radius: 12px;
+    --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #17150f; --paper-2: #1f1c14; --card: #211e16; --ink: #f4f1ea;
+      --ink-dim: #a29d8f; --line: #38342a; --line-strong: #4a4536;
+      --accent: #ffb454; --accent-ink: #1b1508; --user: #6fd0a0;
+      --warn: #e2705f; --live: #e2705f;
+      --s-asr: #7fb3d5; --s-ttft: #ffb454; --s-tts: #a8cc72;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font: 15px/1.5 var(--sans);
+    display: flex; flex-direction: column;
+    -webkit-text-size-adjust: 100%;
+    overflow: hidden;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  h1, h2, h3 { margin: 0; line-height: 1.2; }
+  a { color: var(--accent); }
+
+  /* ---------------- masthead ---------------- */
+  header.masthead {
+    display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+    padding: .55rem .9rem; border-bottom: 1px solid var(--line); background: var(--paper-2);
+  }
+  .brand { display: flex; align-items: baseline; gap: .55rem; }
+  .brand h1 { font-size: 1.02rem; letter-spacing: -.01em; }
+  .brand .kicker {
+    font-family: var(--mono); font-size: .64rem; text-transform: uppercase;
+    letter-spacing: .13em; color: var(--ink-dim);
+  }
+  .toolbar { margin-left: auto; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .keystat {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .04em;
+    display: inline-flex; align-items: center; gap: .4rem;
+    border: 1px solid var(--line); border-radius: 999px; padding: .28rem .6rem; background: var(--card);
+  }
+  .keystat .dot { width: .5rem; height: .5rem; border-radius: 50%; background: var(--warn); }
+  .keystat.ok .dot { background: var(--ok); }
+  select.pick {
+    font-family: var(--mono); font-size: .72rem; letter-spacing: .02em; max-width: 13rem;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .3rem .5rem;
+  }
+  .tbtn {
+    font-family: var(--mono); font-size: .68rem; text-transform: uppercase; letter-spacing: .07em;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .34rem .6rem;
+  }
+  .tbtn:hover { border-color: var(--line-strong); }
+  .tbtn.on { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .tbtn[disabled] { opacity: .45; cursor: default; }
+
+  /* ---------------- rig bar ---------------- */
+  .rig {
+    display: flex; align-items: center; gap: .55rem; flex-wrap: wrap;
+    padding: .4rem .9rem; border-bottom: 1px solid var(--line); background: var(--paper);
+    font-family: var(--mono); font-size: .66rem; color: var(--ink-dim);
+    letter-spacing: .04em;
+  }
+  .rig .lbl { text-transform: uppercase; letter-spacing: .1em; }
+  .seg-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg-toggle button {
+    font-family: var(--mono); font-size: .66rem; letter-spacing: .04em;
+    background: var(--card); border: 0; padding: .3rem .6rem; color: var(--ink-dim);
+  }
+  .seg-toggle button + button { border-left: 1px solid var(--line); }
+  .seg-toggle button.on { background: var(--accent); color: var(--accent-ink); }
+  .rig input[type="range"] { width: 6.5rem; accent-color: var(--accent); }
+  .rig .sep { width: 1px; height: 1.1rem; background: var(--line); }
+
+  /* ---------------- degrade banner ---------------- */
+  .banner {
+    padding: .6rem .9rem; border-bottom: 1px solid var(--line);
+    background: var(--card); font-size: .85rem; color: var(--ink); display: none;
+  }
+  .banner.show { display: block; }
+  .banner strong { color: var(--warn); }
+  .banner code { font-family: var(--mono); font-size: .86em; background: var(--paper-2); padding: .05rem .3rem; border-radius: 5px; }
+
+  /* ---------------- main grid ---------------- */
+  main {
+    flex: 1; min-height: 0; display: grid; gap: 0;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr);
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; grid-template-rows: minmax(0,1fr) minmax(0,1fr); } }
+
+  .col { min-height: 0; overflow-y: auto; padding: 1rem .95rem 1.4rem; }
+  .col.instruments { border-left: 1px solid var(--line); background: var(--paper-2); }
+  @media (max-width: 900px) { .col.instruments { border-left: 0; border-top: 1px solid var(--line); } }
+
+  /* conversation */
+  .turns { display: flex; flex-direction: column; gap: .7rem; max-width: 42rem; margin: 0 auto; }
+  .conv-empty { max-width: 34rem; margin: 1.5rem auto; color: var(--ink-dim); font-size: .93rem; }
+  .conv-empty h2 { font-size: 1.12rem; color: var(--ink); margin-bottom: .45rem; letter-spacing: -.01em; }
+  .conv-empty p { margin: .5rem 0; }
+  .conv-empty kbd, .kbd {
+    font-family: var(--mono); font-size: .78em; border: 1px solid var(--line-strong);
+    border-bottom-width: 2px; border-radius: 5px; padding: .05rem .35rem;
+  }
+  .bubble {
+    max-width: 88%; border-radius: 12px; padding: .55rem .75rem;
+    border: 1px solid var(--line-strong); background: var(--card);
+  }
+  .bubble.user { align-self: flex-end; border-color: var(--user); }
+  .bubble.assistant { align-self: flex-start; }
+  .bubble .who {
+    font-family: var(--mono); font-size: .58rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--ink-dim); margin-bottom: .28rem; display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
+  }
+  .bubble .txt { white-space: pre-wrap; word-break: break-word; font-size: .93rem; line-height: 1.5; }
+  .chip {
+    font-family: var(--mono); font-size: .55rem; letter-spacing: .05em; text-transform: uppercase;
+    border: 1px solid var(--line); border-radius: 5px; padding: .05rem .3rem; color: var(--ink-dim);
+  }
+  .chip.warnish { border-color: var(--warn); color: var(--warn); }
+  .chip.speaking { border-color: var(--accent); color: var(--accent); }
+  .caret { display: inline-block; width: .5ch; background: var(--accent); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* instrument panels */
+  .panel {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    padding: .75rem .8rem; margin-bottom: .8rem;
+  }
+  .panel-h {
+    font-family: var(--mono); font-size: .64rem; text-transform: uppercase; letter-spacing: .12em;
+    color: var(--ink-dim); display: flex; align-items: center; gap: .5rem; margin-bottom: .55rem;
+  }
+  .panel-h .spacer { flex: 1; }
+  .minibtn {
+    font-family: var(--mono); font-size: .58rem; text-transform: uppercase; letter-spacing: .06em;
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 6px; padding: .12rem .38rem;
+    color: var(--ink-dim);
+  }
+  .minibtn:hover { border-color: var(--accent); color: var(--accent); }
+  .hint { font-size: .76rem; color: var(--ink-dim); margin: .5rem 0 0; line-height: 1.45; }
+
+  /* live transcript */
+  .live {
+    font-family: var(--mono); font-size: .82rem; line-height: 1.5; min-height: 3.2rem;
+    background: var(--paper); border: 1px solid var(--line); border-radius: 9px;
+    padding: .5rem .6rem; word-break: break-word;
+  }
+  .live .final { color: var(--ink); }
+  .live .interim { color: var(--ink-dim); font-style: italic; }
+  .live .placeholder { color: var(--ink-dim); }
+  .live.hot { border-color: var(--live); }
+
+  /* latency budget */
+  .bar {
+    display: flex; height: .85rem; border-radius: 6px; overflow: hidden;
+    background: var(--paper); border: 1px solid var(--line); margin-bottom: .55rem;
+  }
+  .bar i { display: block; height: 100%; width: 0; transition: width .18s ease; }
+  .bar i.asr { background: var(--s-asr); }
+  .bar i.ttft { background: var(--s-ttft); }
+  .bar i.tts { background: var(--s-tts); }
+  table.stages { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: .72rem; }
+  table.stages th {
+    text-align: right; font-weight: 600; color: var(--ink-dim); font-size: .58rem;
+    text-transform: uppercase; letter-spacing: .09em; padding: 0 0 .3rem;
+  }
+  table.stages th.name { text-align: left; }
+  table.stages td { padding: .22rem 0; border-top: 1px solid var(--line); text-align: right; }
+  table.stages td.name { text-align: left; display: flex; align-items: center; gap: .4rem; }
+  table.stages tr.total td { font-weight: 700; border-top: 1px solid var(--line-strong); }
+  .swatch { width: .55rem; height: .55rem; border-radius: 2px; flex: none; }
+  .swatch.asr { background: var(--s-asr); }
+  .swatch.ttft { background: var(--s-ttft); }
+  .swatch.tts { background: var(--s-tts); }
+  .swatch.total { background: transparent; border: 1px solid var(--line-strong); }
+  .stage-note { font-size: .68rem; color: var(--ink-dim); font-family: var(--sans); }
+
+  /* turn log */
+  ol.turnlog { list-style: none; margin: 0; padding: 0; max-height: 15rem; overflow-y: auto; }
+  ol.turnlog li {
+    font-family: var(--mono); font-size: .7rem; padding: .35rem 0; border-top: 1px solid var(--line);
+    display: flex; flex-direction: column; gap: .15rem;
+  }
+  ol.turnlog li:first-child { border-top: 0; }
+  ol.turnlog .nums { display: flex; gap: .5rem; flex-wrap: wrap; align-items: baseline; }
+  ol.turnlog .n { color: var(--ink-dim); }
+  ol.turnlog .v-asr { color: var(--s-asr); }
+  ol.turnlog .v-ttft { color: var(--s-ttft); }
+  ol.turnlog .v-tts { color: var(--s-tts); }
+  ol.turnlog .v-total { font-weight: 700; }
+  ol.turnlog .said { font-family: var(--sans); font-size: .74rem; color: var(--ink-dim); }
+  .empty-log { font-size: .76rem; color: var(--ink-dim); font-family: var(--sans); }
+
+  /* ---------------- statusline ---------------- */
+  .statusline {
+    font-family: var(--mono); font-size: .68rem; color: var(--ink-dim);
+    border-top: 1px solid var(--line); background: var(--paper-2);
+    padding: .3rem .95rem; min-height: 1.4rem; display: flex; align-items: center; gap: .5rem;
+  }
+  .statusline.err { color: var(--warn); }
+
+  /* ---------------- controls ---------------- */
+  .controls {
+    border-top: 1px solid var(--line); background: var(--paper-2);
+    padding: .6rem .9rem calc(.6rem + env(safe-area-inset-bottom));
+    display: flex; gap: .7rem; align-items: center; flex-wrap: wrap;
+  }
+  .state {
+    display: inline-flex; align-items: center; gap: .45rem;
+    font-family: var(--mono); font-size: .68rem; text-transform: uppercase; letter-spacing: .08em;
+    color: var(--ink-dim); min-width: 8.5rem;
+  }
+  .state .pip { width: .55rem; height: .55rem; border-radius: 50%; background: var(--line-strong); flex: none; }
+  .state.listening .pip { background: var(--live); animation: pulse 1.1s ease-in-out infinite; }
+  .state.thinking .pip { background: var(--accent); animation: pulse 1.1s ease-in-out infinite; }
+  .state.speaking .pip { background: var(--s-tts); animation: pulse 1.1s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  .talk {
+    flex: none; background: var(--accent); color: var(--accent-ink); border: 1px solid transparent;
+    border-radius: 999px; padding: 0 1.6rem; height: 2.9rem; font-weight: 650; letter-spacing: .01em;
+    user-select: none; -webkit-user-select: none; touch-action: none;
+  }
+  .talk.held { filter: brightness(.88); }
+  .talk.on { background: var(--live); }
+  .talk:disabled { opacity: .45; cursor: default; }
+  .typerow { display: flex; gap: .5rem; flex: 1; min-width: 14rem; }
+  .typerow input {
+    flex: 1; background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: .55rem .7rem; min-width: 6rem;
+  }
+  .btn {
+    background: var(--paper-2); border: 1px solid var(--line); border-radius: 9px;
+    padding: .55rem 1rem; font-weight: 600;
+  }
+  .btn:hover { border-color: var(--line-strong); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+  .btn.danger { color: var(--warn); }
+  .btn.small { padding: .4rem .7rem; font-size: .82rem; font-weight: 500; }
+  .btn:disabled { opacity: .45; cursor: default; }
+  input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+  /* ---------------- modal ---------------- */
+  .scrim {
+    position: fixed; inset: 0; background: rgba(20,16,8,.5); z-index: 50;
+    display: none; align-items: center; justify-content: center; padding: 1rem;
+  }
+  .scrim.open { display: flex; }
+  .modal {
+    background: var(--card); border: 1px solid var(--line-strong); border-radius: 14px;
+    max-width: 36rem; width: 100%; max-height: 90vh; overflow-y: auto;
+    padding: 1.4rem 1.5rem; box-shadow: 0 24px 60px rgba(20,16,8,.35);
+  }
+  .modal h2 { font-size: 1.2rem; margin-bottom: .3rem; letter-spacing: -.01em; }
+  .modal h3 { font-size: .95rem; margin: 1.1rem 0 .3rem; }
+  .modal .sub { color: var(--ink-dim); font-size: .9rem; margin-bottom: 1.1rem; }
+  .modal label.field {
+    display: block; font-family: var(--mono); font-size: .68rem; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--ink-dim); margin: .9rem 0 .35rem;
+  }
+  .modal input[type="password"], .modal input[type="text"] {
+    width: 100%; background: var(--paper); border: 1px solid var(--line); border-radius: 9px;
+    padding: .6rem .7rem; font-family: var(--mono); font-size: .82rem;
+  }
+  .trust {
+    border: 1px solid var(--line); border-radius: 10px; background: var(--paper-2);
+    padding: .8rem .9rem; margin: 1rem 0 .2rem; font-size: .86rem; color: var(--ink-dim);
+  }
+  .trust.alert { border-color: var(--warn); }
+  .trust strong { color: var(--ink); }
+  .trust ul { margin: .5rem 0 0; padding-left: 1.1rem; }
+  .trust li { margin: .35rem 0; }
+  .trust code, .modal code { font-family: var(--mono); font-size: .86em; background: var(--card); padding: .05rem .3rem; border-radius: 5px; }
+  .modal .row { display: flex; gap: .6rem; flex-wrap: wrap; margin-top: 1.2rem; align-items: center; }
+  .modal .err { color: var(--warn); font-size: .85rem; margin-top: .6rem; min-height: 1rem; }
+  .spacer { flex: 1; }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="brand">
+    <h1>Voice Loop</h1>
+    <span class="kicker">byo-key · cascaded voice, timed</span>
+  </div>
+  <div class="toolbar">
+    <button class="keystat" id="keystat" title="Manage your API key">
+      <span class="dot"></span><span id="keystat-label">no key</span>
+    </button>
+    <select class="pick" id="model" title="Model"></select>
+    <button class="tbtn" id="trust-btn" title="What leaves your browser">privacy</button>
+    <button class="tbtn" id="help-btn">?</button>
+  </div>
+</header>
+
+<div class="rig">
+  <span class="lbl">turn-taking</span>
+  <span class="seg-toggle" role="group" aria-label="Turn-taking mode">
+    <button id="mode-ptt" class="on" type="button">push-to-talk</button>
+    <button id="mode-auto" type="button">continuous</button>
+  </span>
+  <span class="sep"></span>
+  <span class="lbl">voice</span>
+  <select class="pick" id="voice" title="Text-to-speech voice"></select>
+  <span class="chip" id="voice-origin" title="Where this voice is synthesised">—</span>
+  <label class="lbl" for="rate" style="text-transform:none;letter-spacing:.04em">rate</label>
+  <input type="range" id="rate" min="0.7" max="1.6" step="0.05" value="1.05" title="Speaking rate">
+  <span id="rate-val">1.05×</span>
+  <span class="sep"></span>
+  <button class="tbtn on" id="speak-toggle" title="Speak Claude's replies aloud">speech out: on</button>
+</div>
+
+<div class="banner" id="banner"></div>
+
+<main>
+  <div class="col conversation" id="conv-col">
+    <div class="conv-empty" id="conv-empty">
+      <h2>Say something. Then watch what it cost.</h2>
+      <p>This is a <strong>cascaded</strong> voice agent: speech → text → a text model → speech.
+      Four separate systems in a line, each one waiting on the last. The chat is not the point —
+      the <strong>latency budget</strong> on the right is. Every turn is broken into the stage that
+      produced it, live, with a running session median.</p>
+      <p>Hold <kbd>Talk</kbd> (or press and hold <kbd>Space</kbd>) to take the floor explicitly.
+      Switch to <em>continuous</em> and the browser guesses when you have finished instead — same
+      loop, a different endpoint, usually a different bill.</p>
+      <p>The raw recogniser output is shown verbatim alongside every turn, because mishearing is the
+      failure mode that actually bites, and a transcript-free voice UI hides it.</p>
+    </div>
+    <div class="turns" id="turns"></div>
+  </div>
+
+  <div class="col instruments">
+    <section class="panel">
+      <h2 class="panel-h">What the mic heard</h2>
+      <div class="live" id="live"><span class="placeholder">— nothing yet —</span></div>
+      <p class="hint" id="heard-hint">Verbatim recogniser output: settled text in solid, in-flight
+        guesses in italic. Recognition confidence, where the browser reports it, is shown on the turn.</p>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-h">
+        Latency budget
+        <span class="spacer"></span>
+        <span id="turn-count" style="font-family:var(--mono);text-transform:none;letter-spacing:0">0 turns</span>
+      </h2>
+      <div class="bar" id="bar" title="Composition of the last turn">
+        <i class="asr"></i><i class="ttft"></i><i class="tts"></i>
+      </div>
+      <table class="stages">
+        <thead>
+          <tr><th class="name">stage</th><th>last</th><th>median</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="name"><span class="swatch asr"></span>speech-end → transcript</td>
+            <td id="last-asr">—</td><td id="med-asr">—</td>
+          </tr>
+          <tr>
+            <td class="name"><span class="swatch ttft"></span>transcript → first token</td>
+            <td id="last-ttft">—</td><td id="med-ttft">—</td>
+          </tr>
+          <tr>
+            <td class="name"><span class="swatch tts"></span>first token → first audio</td>
+            <td id="last-tts">—</td><td id="med-tts">—</td>
+          </tr>
+          <tr class="total">
+            <td class="name"><span class="swatch total"></span>stop talking → start hearing</td>
+            <td id="last-total">—</td><td id="med-total">—</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="hint" id="budget-hint">Stage&nbsp;1 is endpointing plus recogniser finalisation — in
+        continuous mode it includes the settle window the page waits out before it believes you have
+        stopped. Stage&nbsp;3 includes the wait for enough text to be worth speaking: this page flushes
+        to the synthesiser at the first sentence boundary rather than the end of the reply.</p>
+    </section>
+
+    <section class="panel">
+      <h2 class="panel-h">
+        Turn log
+        <span class="spacer"></span>
+        <button class="minibtn" id="copy-tsv" type="button">copy tsv</button>
+        <button class="minibtn" id="clear-log" type="button">clear</button>
+      </h2>
+      <ol class="turnlog" id="turnlog"></ol>
+      <p class="empty-log" id="empty-log">No turns yet.</p>
+    </section>
+  </div>
+</main>
+
+<div class="statusline" id="statusline"></div>
+
+<div class="controls">
+  <span class="state" id="state"><span class="pip"></span><span id="state-label">idle</span></span>
+  <button class="talk" id="talk">Hold to talk</button>
+  <button class="btn small" id="barge" disabled>Stop speaking</button>
+  <div class="typerow">
+    <input type="text" id="typed" placeholder="…or type a turn (works with no microphone)" spellcheck="false">
+    <button class="btn small" id="send-typed">Send</button>
+  </div>
+</div>
+
+<!-- Key modal -->
+<div class="scrim" id="key-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="key-title">
+    <h2 id="key-title">Your Anthropic API key</h2>
+    <p class="sub">This tool calls Claude directly from your browser. Bring your own key.</p>
+
+    <div class="trust">
+      <strong>Your key stays in your browser. It is never sent to any server of ours.</strong>
+      <ul>
+        <li>It is stored only in this browser's <code>localStorage</code> and sent straight to
+          <code>api.anthropic.com</code> — nowhere else. This site is static; there is no backend to receive it.</li>
+        <li>The conversation and all timings live in memory for this session only. Nothing is persisted server-side.</li>
+        <li>Clear the key any time with <em>Forget key</em> below.</li>
+      </ul>
+    </div>
+
+    <div class="trust alert">
+      <strong>Your voice is a different story — read the privacy note.</strong>
+      The browser's speech recogniser is not necessarily local. In Chrome it is a cloud service, so
+      captured audio leaves your machine for your <em>browser vendor</em>. That has nothing to do with
+      your key, and no wording about the key covers it.
+      <div class="row" style="margin-top:.7rem">
+        <button class="btn small" id="key-to-trust" type="button">Read the privacy note</button>
+      </div>
+    </div>
+
+    <label class="field" for="key-input">API key (starts with <code>sk-ant-</code>)</label>
+    <input type="password" id="key-input" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+    <p class="err" id="key-err"></p>
+
+    <div class="row">
+      <button class="btn primary" id="key-save">Save key</button>
+      <button class="btn danger" id="key-forget">Forget key</button>
+      <span class="spacer"></span>
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">Get a key ↗</a>
+    </div>
+  </div>
+</div>
+
+<!-- Microphone permission explainer — shown before the first getUserMedia prompt -->
+<div class="scrim" id="mic-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mic-title">
+    <h2 id="mic-title">Before the browser asks for your microphone</h2>
+    <p class="sub">One screen, so the permission prompt isn't the first you hear of it.</p>
+
+    <div class="trust alert">
+      <strong>Speech recognition may send your audio to your browser vendor.</strong>
+      <ul>
+        <li>This page uses the browser's built-in <code>SpeechRecognition</code> API. <strong>In Chrome
+          and Edge that is a network service</strong>: captured audio is streamed to the browser vendor's
+          servers, transcribed there, and the text is handed back to this page. Safari's implementation
+          may transcribe on-device or via Apple's servers depending on the platform and settings.</li>
+        <li>So: “nothing leaves your browser” is true of <em>your API key</em>. It is <strong>not</strong>
+          true of your voice. This page cannot see or control where the recogniser sends the audio, and
+          it makes no promise about it.</li>
+        <li>What this page itself does with audio: nothing. It never touches the raw audio, never records
+          it, never uploads it anywhere. It only receives the text the recogniser returns.</li>
+        <li>The <em>transcript</em> is then sent to <code>api.anthropic.com</code> as your message, along
+          with the conversation so far — exactly as if you had typed it.</li>
+        <li>Text-to-speech voices marked <span class="chip">network</span> in the voice picker are also
+          synthesised remotely; voices marked <span class="chip">device</span> are not.</li>
+        <li>If you would rather none of that happened, use the <strong>type a turn</strong> box instead.
+          The model and speech-out stages still work and still get timed.</li>
+      </ul>
+    </div>
+
+    <p class="hint">Next: your browser will ask for microphone permission. It stays on only while you
+      are holding the talk button, or until you stop continuous listening.</p>
+
+    <div class="row">
+      <button class="btn primary" id="mic-ok">Understood — ask for the mic</button>
+      <button class="btn" id="mic-cancel">Not now</button>
+    </div>
+  </div>
+</div>
+
+<!-- Privacy / trust modal -->
+<div class="scrim" id="trust-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="trust-title">
+    <h2 id="trust-title">What leaves your browser</h2>
+    <p class="sub">Three different answers, and they are not the same answer.</p>
+
+    <h3>Your API key — stays here</h3>
+    <div class="trust">
+      Stored in this browser's <code>localStorage</code>, attached as the <code>x-api-key</code> header on
+      requests to <code>api.anthropic.com</code>, and sent nowhere else. whatupwolf is a static site with
+      no backend; there is nothing here that could receive it. <em>Forget key</em> removes it.
+    </div>
+
+    <h3>Your voice — probably does not stay here</h3>
+    <div class="trust alert">
+      The browser's <code>SpeechRecognition</code> API is implemented as a <strong>cloud service in Chrome
+      and Edge</strong>: audio captured from your microphone is sent to the browser vendor for
+      transcription. Safari may do this on-device or remotely depending on platform and settings. This
+      page never sees, stores, or transmits the audio itself — but it also cannot stop the browser from
+      doing so, and does not claim to. If the recogniser reports a <code>network</code> error, that is the
+      giveaway: a local recogniser would not need one.
+    </div>
+
+    <h3>Your words — go to Anthropic</h3>
+    <div class="trust">
+      The transcript, plus the running conversation, is sent to Claude as an ordinary Messages API
+      request. Same as typing. Selected text-to-speech voices flagged <span class="chip">network</span>
+      are synthesised on the vendor's servers too; <span class="chip">device</span> voices are not.
+    </div>
+
+    <div class="row"><button class="btn primary" id="trust-close">Close</button></div>
+  </div>
+</div>
+
+<!-- Help modal -->
+<div class="scrim" id="help-scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+    <h2 id="help-title">How this works, and what it is measuring</h2>
+    <p class="sub">A cascaded voice-agent prototype for whatupwolf.com/lab.</p>
+
+    <div class="trust" style="background:var(--card)">
+      <p><strong>The cascade.</strong> Four systems in a line: microphone → speech recognition →
+      Claude → speech synthesis. Each one has to finish before the next can start, so the latencies
+      add rather than overlap. That sum is what a person experiences as “how long until it answers”,
+      and it is what this page puts a number on.</p>
+      <ul>
+        <li><strong>Speech-end → transcript.</strong> Deciding you have stopped, and finalising the text.
+          In push-to-talk this starts the instant you release the button — an explicit floor handoff, so
+          the moment is exact. In continuous mode it starts at the recogniser's own guess, and includes
+          the settle window this page waits before believing the guess.</li>
+        <li><strong>Transcript → first token.</strong> Request construction, network, and time-to-first-token
+          from the model. Streaming is on, so this is the first token, not the whole reply.</li>
+        <li><strong>First token → first audio.</strong> Buffering enough text to be worth saying, then the
+          synthesiser starting. This page flushes at the first sentence boundary; waiting for the full
+          reply would be simpler and much worse.</li>
+        <li><strong>Stop talking → start hearing.</strong> The sum, which is the only number the person
+          in the room can feel.</li>
+      </ul>
+      <p><strong>This is half-duplex, and that is the honest label.</strong> One party holds the floor at a
+      time. There is no overlap, no backchannel, no “mm-hm” while you are still talking, and the model
+      never hears your tone — only text. A native speech-to-speech model does not work this way; it
+      listens and speaks over the same continuous stream. Barge-in here is a crude approximation:
+      detected speech cancels playback mid-sentence. It is not the same thing.</p>
+      <p><strong>Two turn-taking modes, on purpose.</strong> Push-to-talk removes the endpointing problem
+      by making you solve it. Continuous mode guesses, which is what a real product must do — and the
+      guess is where a good chunk of the perceived latency lives. Run the same sentence in both and
+      compare the first row.</p>
+      <p><strong>Echo.</strong> In continuous mode the microphone can hear the synthesised voice. This
+      page ignores recogniser output for a short guard window after playback starts, but there is no
+      acoustic echo cancellation on that path, so a loud speaker can still make the loop talk to itself.
+      Headphones fix it. That, too, is part of the cascade's cost.</p>
+      <p><strong>Why it matters.</strong> The τ-Voice benchmark (<a href="https://arxiv.org/abs/2603.13686"
+      target="_blank" rel="noopener noreferrer">arXiv:2603.13686</a>) ran matched agent tasks in text and
+      in voice: about <strong>85% task completion in text</strong> collapses to <strong>31–51% on clean
+      audio</strong>, and <strong>26–38% under realistic noise and accents</strong> — with 79–90% of the
+      failures attributed to the agent's own behaviour rather than to transcription errors. Latency is the
+      part you can feel in ten seconds with this page; the capability gap is the part you cannot.</p>
+      <p><strong>Bring-your-own-key.</strong> Anthropic-only, streamed straight from the browser. The key
+      stays in <code>localStorage</code> and is sent only to <code>api.anthropic.com</code>. Read the
+      <strong>privacy</strong> note for what happens to the audio, which is a separate question.</p>
+    </div>
+    <div class="row"><button class="btn primary" id="help-close">Got it</button></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function () {
+  var API_URL = "https://api.anthropic.com/v1/messages";
+  var ANTHROPIC_VERSION = "2023-06-01";
+  var KEY_STORE = "voiceloop.anthropic-key";
+  var MODEL_STORE = "voiceloop.model";
+  var MODE_STORE = "voiceloop.mode";
+  var VOICE_STORE = "voiceloop.voice";
+  var RATE_STORE = "voiceloop.rate";
+  var MIC_ACK_STORE = "voiceloop.mic-ack";
+
+  // Model ids + the browser-direct calling contract were confirmed via the
+  // claude-api skill, not recalled. thinking:disabled keeps time-to-first-token
+  // as low as the API allows, which is the whole point of this page (accepted on
+  // Sonnet 5 / Opus 4.8; omitted entirely on Haiku 4.5, which predates it).
+  var MODELS = [
+    { id: "claude-sonnet-5", label: "Sonnet 5", thinking: { type: "disabled" } },
+    { id: "claude-haiku-4-5", label: "Haiku 4.5", thinking: null },
+    { id: "claude-opus-4-8", label: "Opus 4.8", thinking: { type: "disabled" } }
+  ];
+
+  var SYSTEM =
+    "You are Claude, speaking out loud through a browser text-to-speech voice in a half-duplex voice " +
+    "loop. Your reply is read aloud verbatim, so write plain spoken sentences: no markdown, no bullet " +
+    "points, no headings, no emoji, no code blocks, no URLs, no parenthetical asides, no stage " +
+    "directions. Keep it short — usually one to three sentences — and lead with the answer, because " +
+    "the listener hears the first sentence before they can interrupt. The text you receive is " +
+    "speech-recognition output and will contain mishearings: infer the intended word from context " +
+    "rather than repeating a garbled one back. If you genuinely cannot tell what was said, ask one " +
+    "short clarifying question.";
+
+  var MAX_TOKENS = 1024;
+  var HISTORY_TURNS = 20;      // messages kept as context
+  var SETTLE_MS = 650;         // continuous mode: silence before we believe the endpoint
+  var ECHO_GUARD_MS = 550;     // continuous mode: ignore the mic just after playback starts
+  var TTS_FIRST_FLUSH = 90;    // chars after which we'll flush without a sentence end
+  var TTS_MAX_CHUNK = 260;
+
+  // ---------- feature detection ----------
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var SUPPORT = {
+    asr: !!SR,
+    tts: !!(window.speechSynthesis && window.SpeechSynthesisUtterance)
+  };
+
+  // ---------- state ----------
+  var apiKey = null;
+  var currentModelId = null;
+  var mode = "ptt";                 // "ptt" | "auto"
+  var speakOut = SUPPORT.tts;
+  var voices = [], selectedVoice = null, rate = 1.05;
+
+  var recog = null, recogRunning = false, recogWanted = false;
+  var pttHeld = false, pendingCommit = false;
+  var settleTimer = null;
+  var listening = false, thinking = false, speaking = false;
+  var echoGuardUntil = 0;
+  var abortCtl = null;
+
+  var utter = null;                 // in-progress utterance accumulator
+  var history = [];                 // {role, text}
+  var turns = [];                   // completed timing records
+  var turnSeq = 0;
+  var samples = { asr: [], ttft: [], tts: [], total: [] };
+
+  var active = null;                // in-flight turn record
+
+  // ---------- element refs ----------
+  var $ = function (id) { return document.getElementById(id); };
+  var turnsEl = $("turns"), convEmptyEl = $("conv-empty"), convColEl = $("conv-col");
+  var liveEl = $("live"), statusEl = $("statusline"), bannerEl = $("banner");
+  var stateEl = $("state"), stateLabel = $("state-label");
+  var talkBtn = $("talk"), bargeBtn = $("barge");
+  var typedEl = $("typed"), sendTypedBtn = $("send-typed");
+  var modelSel = $("model"), voiceSel = $("voice"), rateEl = $("rate"), rateVal = $("rate-val");
+  var keystatBtn = $("keystat"), keystatLabel = $("keystat-label");
+  var speakToggle = $("speak-toggle");
+  var barEl = $("bar"), turnlogEl = $("turnlog"), emptyLogEl = $("empty-log"), turnCountEl = $("turn-count");
+
+  // ================= key + model =================
+  function loadKey() {
+    try { apiKey = localStorage.getItem(KEY_STORE) || null; } catch (e) { apiKey = null; }
+    renderKeyStatus();
+  }
+  function saveKey(k) {
+    apiKey = k;
+    try { localStorage.setItem(KEY_STORE, k); } catch (e) {}
+    renderKeyStatus();
+  }
+  function forgetKey() {
+    apiKey = null;
+    try { localStorage.removeItem(KEY_STORE); } catch (e) {}
+    renderKeyStatus();
+  }
+  function renderKeyStatus() {
+    var has = !!apiKey;
+    keystatBtn.classList.toggle("ok", has);
+    keystatLabel.textContent = has ? ("key ·" + (apiKey.length > 6 ? apiKey.slice(-4) : "")) : "no key";
+  }
+
+  function initModels() {
+    var saved = null;
+    try { saved = localStorage.getItem(MODEL_STORE); } catch (e) {}
+    MODELS.forEach(function (m) {
+      var o = document.createElement("option");
+      o.value = m.id; o.textContent = m.label;
+      modelSel.appendChild(o);
+    });
+    currentModelId = MODELS.some(function (m) { return m.id === saved; }) ? saved : MODELS[0].id;
+    modelSel.value = currentModelId;
+  }
+  function currentModel() {
+    for (var i = 0; i < MODELS.length; i++) if (MODELS[i].id === currentModelId) return MODELS[i];
+    return MODELS[0];
+  }
+  modelSel.addEventListener("change", function () {
+    currentModelId = modelSel.value;
+    try { localStorage.setItem(MODEL_STORE, currentModelId); } catch (e) {}
+    setStatus("Model set to " + currentModel().label + " — session medians mix models, so clear the log for a clean comparison.");
+  });
+
+  // ================= voices =================
+  function loadVoices() {
+    if (!SUPPORT.tts) return;
+    voices = window.speechSynthesis.getVoices() || [];
+    var saved = null;
+    try { saved = localStorage.getItem(VOICE_STORE); } catch (e) {}
+    while (voiceSel.firstChild) voiceSel.removeChild(voiceSel.firstChild);
+    if (!voices.length) {
+      var o = document.createElement("option");
+      o.value = ""; o.textContent = "(browser default)";
+      voiceSel.appendChild(o);
+      selectedVoice = null;
+      return;
+    }
+    // Prefer voices matching the page language, then everything else.
+    var lang = (navigator.language || "en-US").toLowerCase();
+    var prefix = lang.split("-")[0];
+    var sorted = voices.slice().sort(function (a, b) {
+      var am = (a.lang || "").toLowerCase().indexOf(prefix) === 0 ? 0 : 1;
+      var bm = (b.lang || "").toLowerCase().indexOf(prefix) === 0 ? 0 : 1;
+      if (am !== bm) return am - bm;
+      return (a.name || "").localeCompare(b.name || "");
+    });
+    sorted.forEach(function (v) {
+      var o = document.createElement("option");
+      o.value = v.voiceURI;
+      o.textContent = v.name + " · " + v.lang + " · " + (v.localService ? "device" : "network");
+      voiceSel.appendChild(o);
+    });
+    var pick = null;
+    for (var i = 0; i < sorted.length; i++) if (sorted[i].voiceURI === saved) pick = sorted[i];
+    if (!pick) pick = sorted[0];
+    selectedVoice = pick;
+    voiceSel.value = pick.voiceURI;
+    renderVoiceOrigin();
+  }
+  function renderVoiceOrigin() {
+    var el = $("voice-origin");
+    if (!selectedVoice) { el.textContent = "—"; el.className = "chip"; return; }
+    var local = !!selectedVoice.localService;
+    el.textContent = local ? "device voice" : "network voice";
+    el.className = "chip" + (local ? "" : " warnish");
+    el.title = local
+      ? "Synthesised on this device — the text is not sent anywhere to be spoken."
+      : "Synthesised on the vendor's servers — Claude's reply text leaves your machine to be spoken.";
+  }
+  voiceSel.addEventListener("change", function () {
+    for (var i = 0; i < voices.length; i++) {
+      if (voices[i].voiceURI === voiceSel.value) { selectedVoice = voices[i]; break; }
+    }
+    try { localStorage.setItem(VOICE_STORE, voiceSel.value); } catch (e) {}
+    renderVoiceOrigin();
+    if (selectedVoice && !selectedVoice.localService) {
+      setStatus("“" + selectedVoice.name + "” is a network voice — the reply text is sent to the vendor to be synthesised. See the privacy note.");
+    }
+  });
+  rateEl.addEventListener("input", function () {
+    rate = parseFloat(rateEl.value) || 1;
+    rateVal.textContent = rate.toFixed(2) + "×";
+    try { localStorage.setItem(RATE_STORE, String(rate)); } catch (e) {}
+  });
+
+  speakToggle.addEventListener("click", function () {
+    if (!SUPPORT.tts) return;
+    speakOut = !speakOut;
+    speakToggle.classList.toggle("on", speakOut);
+    speakToggle.textContent = "speech out: " + (speakOut ? "on" : "off");
+    if (!speakOut) cancelSpeech();
+    setStatus(speakOut
+      ? "Speech out on — stages 3 and 4 are measurable again."
+      : "Speech out off — only the first two stages are measurable; the last two show —.");
+  });
+
+  // ================= mode =================
+  function setMode(next) {
+    if (mode === next) return;
+    stopListening();
+    cancelSpeech();
+    mode = next;
+    try { localStorage.setItem(MODE_STORE, mode); } catch (e) {}
+    $("mode-ptt").classList.toggle("on", mode === "ptt");
+    $("mode-auto").classList.toggle("on", mode === "auto");
+    recog = null; // rebuilt with the right `continuous` flag
+    renderTalkButton();
+    setStatus(mode === "ptt"
+      ? "Push-to-talk: you hand over the floor explicitly, so stage 1 starts at a known instant."
+      : "Continuous: the recogniser guesses when you've finished. Stage 1 now includes that guess and a " + SETTLE_MS + " ms settle window.");
+  }
+  $("mode-ptt").addEventListener("click", function () { setMode("ptt"); });
+  $("mode-auto").addEventListener("click", function () { setMode("auto"); });
+
+  // ================= status / state =================
+  function setStatus(text, isErr) {
+    statusEl.classList.toggle("err", !!isErr);
+    statusEl.textContent = text || "";
+  }
+  function renderState() {
+    var s = speaking ? "speaking" : thinking ? "thinking" : listening ? "listening" : "idle";
+    stateEl.className = "state " + s;
+    var label = s;
+    if (s === "listening") label = mode === "ptt" ? "listening · floor held" : "listening · open floor";
+    if (s === "thinking") label = "thinking · " + currentModel().label;
+    stateLabel.textContent = label;
+    liveEl.classList.toggle("hot", listening);
+    bargeBtn.disabled = !speaking;
+    renderTalkButton();
+  }
+  function renderTalkButton() {
+    if (!SUPPORT.asr) {
+      talkBtn.textContent = "No speech input";
+      talkBtn.disabled = true;
+      talkBtn.classList.remove("on", "held");
+      return;
+    }
+    talkBtn.disabled = false;
+    if (mode === "ptt") {
+      talkBtn.textContent = pttHeld ? "Release to send" : "Hold to talk";
+      talkBtn.classList.toggle("held", pttHeld);
+      talkBtn.classList.remove("on");
+    } else {
+      talkBtn.textContent = recogWanted ? "Stop listening" : "Start listening";
+      talkBtn.classList.toggle("on", recogWanted);
+      talkBtn.classList.remove("held");
+    }
+  }
+
+  // ================= degrade banner =================
+  function renderBanner() {
+    var msgs = [];
+    if (!SUPPORT.asr) {
+      msgs.push("<strong>This browser has no speech recognition.</strong> " +
+        "<code>SpeechRecognition</code> / <code>webkitSpeechRecognition</code> is undefined here — Firefox " +
+        "ships no implementation at all, so there is nothing to fall back to. Speech input is disabled. " +
+        "Everything downstream still works: type a turn below and the model and speech-out stages are " +
+        "measured as normal (the first stage will read <em>typed</em>). Chrome, Edge, or Safari give you " +
+        "the full loop.");
+    }
+    if (!SUPPORT.tts) {
+      msgs.push("<strong>This browser has no speech synthesis.</strong> <code>speechSynthesis</code> is " +
+        "undefined, so replies are shown but not spoken, and the last two stages of the latency budget " +
+        "cannot be measured.");
+    }
+    if (!msgs.length) { bannerEl.classList.remove("show"); bannerEl.innerHTML = ""; return; }
+    bannerEl.innerHTML = msgs.join("<hr style='border:0;border-top:1px solid var(--line);margin:.6rem 0'>");
+    bannerEl.classList.add("show");
+  }
+
+  // ================= conversation rendering =================
+  function updateEmpty() { convEmptyEl.style.display = turnsEl.children.length ? "none" : "block"; }
+  function scrollConv() { convColEl.scrollTop = convColEl.scrollHeight; }
+
+  function addUserBubble(text, meta) {
+    var b = document.createElement("div");
+    b.className = "bubble user";
+    var who = document.createElement("div");
+    who.className = "who";
+    var name = document.createElement("span");
+    name.textContent = "you · heard";
+    who.appendChild(name);
+    (meta || []).forEach(function (m) {
+      var c = document.createElement("span");
+      c.className = "chip" + (m.warn ? " warnish" : "");
+      c.textContent = m.text;
+      who.appendChild(c);
+    });
+    var txt = document.createElement("div");
+    txt.className = "txt"; txt.textContent = text;
+    b.appendChild(who); b.appendChild(txt);
+    turnsEl.appendChild(b);
+    updateEmpty(); scrollConv();
+    return b;
+  }
+
+  function addAssistantBubble() {
+    var b = document.createElement("div");
+    b.className = "bubble assistant";
+    var who = document.createElement("div");
+    who.className = "who";
+    var name = document.createElement("span");
+    name.textContent = "claude · " + currentModel().label;
+    var chip = document.createElement("span");
+    chip.className = "chip"; chip.textContent = "…";
+    who.appendChild(name); who.appendChild(chip);
+    var txt = document.createElement("div");
+    txt.className = "txt";
+    b.appendChild(who); b.appendChild(txt);
+    turnsEl.appendChild(b);
+    updateEmpty(); scrollConv();
+    return { el: b, txt: txt, chip: chip };
+  }
+
+  function setBubbleText(ref, text, streamingFlag) {
+    ref.txt.textContent = text;
+    if (streamingFlag) {
+      var c = document.createElement("span");
+      c.className = "caret"; c.textContent = " ";
+      ref.txt.appendChild(c);
+    }
+    scrollConv();
+  }
+
+  // ================= live transcript =================
+  function renderLive() {
+    var f = utter ? utter.finalText : "";
+    var i = utter ? utter.interim : "";
+    while (liveEl.firstChild) liveEl.removeChild(liveEl.firstChild);
+    if (!f && !i) {
+      var p = document.createElement("span");
+      p.className = "placeholder";
+      p.textContent = listening ? "— listening —" : "— nothing yet —";
+      liveEl.appendChild(p);
+      return;
+    }
+    if (f) {
+      var fs = document.createElement("span");
+      fs.className = "final"; fs.textContent = f + (i ? " " : "");
+      liveEl.appendChild(fs);
+    }
+    if (i) {
+      var is = document.createElement("span");
+      is.className = "interim"; is.textContent = i;
+      liveEl.appendChild(is);
+    }
+  }
+
+  // ================= latency panel =================
+  function median(a) {
+    if (!a.length) return null;
+    var s = a.slice().sort(function (x, y) { return x - y; });
+    var m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : Math.round((s[m - 1] + s[m]) / 2);
+  }
+  function ms(v) { return v === null || v === undefined ? "—" : Math.round(v) + " ms"; }
+
+  function renderBudget() {
+    var last = turns.length ? turns[turns.length - 1] : null;
+    ["asr", "ttft", "tts", "total"].forEach(function (k) {
+      $("last-" + k).textContent = last ? ms(last[k]) : "—";
+      $("med-" + k).textContent = ms(median(samples[k]));
+    });
+    // The bar shows the composition of whichever stages the last turn actually
+    // produced — a typed turn has no stage 1, a silenced turn has no stage 3 —
+    // so it is normalised by the stages present, not by the (possibly null) total.
+    var segs = barEl.querySelectorAll("i");
+    var parts = last ? [last.asr, last.ttft, last.tts] : [null, null, null];
+    var sum = parts.reduce(function (a, v) { return a + (v || 0); }, 0);
+    for (var i = 0; i < 3; i++) {
+      segs[i].style.width = sum > 0 ? (100 * (parts[i] || 0) / sum) + "%" : "0%";
+    }
+    barEl.title = last && sum > 0
+      ? ("Last turn: " + (parts[0] === null ? "no stage 1 (typed)" : Math.round(parts[0]) + " ms recognise")
+         + " · " + (parts[1] === null ? "—" : Math.round(parts[1]) + " ms to first token")
+         + " · " + (parts[2] === null ? "no audio" : Math.round(parts[2]) + " ms to first audio"))
+      : "Composition of the last turn";
+    turnCountEl.textContent = turns.length + (turns.length === 1 ? " turn" : " turns");
+  }
+
+  function renderTurnLog() {
+    while (turnlogEl.firstChild) turnlogEl.removeChild(turnlogEl.firstChild);
+    emptyLogEl.style.display = turns.length ? "none" : "block";
+    turns.slice().reverse().forEach(function (t) {
+      var li = document.createElement("li");
+      var nums = document.createElement("div");
+      nums.className = "nums";
+      function span(cls, text) {
+        var s = document.createElement("span"); s.className = cls; s.textContent = text; return s;
+      }
+      nums.appendChild(span("n", "#" + t.n + " " + t.endpoint + " · " + t.model));
+      nums.appendChild(span("v-asr", t.asr === null ? "—" : Math.round(t.asr)));
+      nums.appendChild(span("n", "·"));
+      nums.appendChild(span("v-ttft", t.ttft === null ? "—" : Math.round(t.ttft)));
+      nums.appendChild(span("n", "·"));
+      nums.appendChild(span("v-tts", t.tts === null ? "—" : Math.round(t.tts)));
+      nums.appendChild(span("n", "→"));
+      nums.appendChild(span("v-total", t.total === null ? "—" : Math.round(t.total) + " ms"));
+      var said = document.createElement("div");
+      said.className = "said";
+      said.textContent = "“" + t.transcript + "”" + (t.note ? " — " + t.note : "");
+      li.appendChild(nums); li.appendChild(said);
+      turnlogEl.appendChild(li);
+    });
+  }
+
+  $("copy-tsv").addEventListener("click", function () {
+    var rows = ["turn\tmode\tendpoint\tmodel\tasr_ms\tttft_ms\ttts_ms\ttotal_ms\ttranscript"];
+    turns.forEach(function (t) {
+      rows.push([
+        t.n, t.mode, t.endpoint, t.model,
+        t.asr === null ? "" : Math.round(t.asr),
+        t.ttft === null ? "" : Math.round(t.ttft),
+        t.tts === null ? "" : Math.round(t.tts),
+        t.total === null ? "" : Math.round(t.total),
+        String(t.transcript).replace(/\s+/g, " ")
+      ].join("\t"));
+    });
+    var text = rows.join("\n");
+    var done = function () { setStatus("Copied " + turns.length + " turn(s) as TSV."); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text, done); });
+    } else { fallbackCopy(text, done); }
+  });
+  function fallbackCopy(text, done) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.setAttribute("readonly", "");
+    ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); done(); }
+    catch (e) { setStatus("Could not copy to the clipboard here.", true); }
+    document.body.removeChild(ta);
+  }
+  $("clear-log").addEventListener("click", function () {
+    turns = []; samples = { asr: [], ttft: [], tts: [], total: [] };
+    renderBudget(); renderTurnLog();
+    setStatus("Timing log cleared. The conversation is untouched.");
+  });
+
+  // ================= speech synthesis =================
+  var ttsBuf = "", ttsPending = 0, ttsFirstFlushed = false, streamDone = false;
+  // Set when playback is cancelled so the rest of a still-streaming reply
+  // doesn't quietly start speaking again a moment after a barge-in.
+  var ttsSuppressed = false;
+
+  function cancelSpeech() {
+    ttsSuppressed = true;
+    if (!SUPPORT.tts) return;
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    ttsPending = 0; ttsBuf = "";
+    if (speaking) { speaking = false; renderState(); }
+  }
+
+  function speakChunk(text) {
+    if (!SUPPORT.tts || !speakOut || ttsSuppressed) return;
+    var t = text.trim();
+    if (!t) return;
+    var owner = active;   // the turn this audio belongs to, captured now
+    var u = new window.SpeechSynthesisUtterance(t);
+    if (selectedVoice) { u.voice = selectedVoice; u.lang = selectedVoice.lang; }
+    u.rate = rate;
+    ttsPending += 1;
+    u.onstart = function () {
+      if (!speaking) { speaking = true; renderState(); }
+      echoGuardUntil = performance.now() + ECHO_GUARD_MS;
+      if (owner && owner.tFirstAudio === null && !owner.logged) {
+        owner.tFirstAudio = performance.now();
+        finalizeTiming(owner);
+      }
+    };
+    u.onend = u.onerror = function () {
+      ttsPending = Math.max(0, ttsPending - 1);
+      if (ttsPending === 0 && streamDone) {
+        speaking = false; renderState();
+        // The synthesiser can drop an utterance without ever firing `start`
+        // (no usable voice, engine hiccup). Don't strand the turn unlogged.
+        if (owner && !owner.logged && owner.tFirstAudio === null) {
+          owner.note = owner.note || "no audio";
+          owner.tts = null; owner.total = null;
+          finalizeTiming(owner);
+        }
+      }
+    };
+    try { window.speechSynthesis.speak(u); }
+    catch (e) { ttsPending = Math.max(0, ttsPending - 1); }
+  }
+
+  // Flush at the first sentence boundary so audio starts before the reply ends.
+  // Waiting for the whole reply would be simpler and would roughly double stage 3.
+  function pumpTts(force) {
+    if (!SUPPORT.tts || !speakOut || ttsSuppressed) return;
+    while (true) {
+      var idx = -1;
+      // Sentence end followed by whitespace: during streaming a trailing "." is
+      // as likely to be "e.g" mid-word as a real boundary, so wait for the space.
+      var m = /[.!?…]["'”’)\]]*\s/.exec(ttsBuf);
+      if (m) idx = m.index + m[0].length;
+      if (idx < 0 && ttsBuf.length >= TTS_MAX_CHUNK) {
+        var comma = ttsBuf.lastIndexOf(",", TTS_MAX_CHUNK);
+        var sp = ttsBuf.lastIndexOf(" ", TTS_MAX_CHUNK);
+        idx = comma > 40 ? comma + 1 : (sp > 40 ? sp : TTS_MAX_CHUNK);
+      }
+      if (idx < 0 && !ttsFirstFlushed && ttsBuf.length >= TTS_FIRST_FLUSH) {
+        var sp2 = ttsBuf.lastIndexOf(" ");
+        if (sp2 > 40) idx = sp2;
+      }
+      if (idx < 0) break;
+      var chunk = ttsBuf.slice(0, idx);
+      ttsBuf = ttsBuf.slice(idx);
+      ttsFirstFlushed = true;
+      speakChunk(chunk);
+    }
+    if (force && ttsBuf.trim()) { ttsFirstFlushed = true; speakChunk(ttsBuf); ttsBuf = ""; }
+  }
+
+  bargeBtn.addEventListener("click", function () {
+    cancelSpeech();
+    setStatus("Playback cancelled.");
+  });
+
+  // ================= recognition =================
+  function resetUtterance() {
+    utter = {
+      finalText: "", interim: "", confidence: null,
+      startedAt: performance.now(), lastResultAt: 0, speechEndAt: 0, endAt: 0, endpointKind: null
+    };
+    renderLive();
+  }
+
+  function micAcknowledged() {
+    try { return localStorage.getItem(MIC_ACK_STORE) === "1"; } catch (e) { return false; }
+  }
+  function ackMic() { try { localStorage.setItem(MIC_ACK_STORE, "1"); } catch (e) {} }
+
+  function buildRecognizer() {
+    var r = new SR();
+    r.lang = navigator.language || "en-US";
+    r.interimResults = true;
+    r.continuous = true;   // we own the floor logic in both modes
+    r.maxAlternatives = 1;
+
+    r.onstart = function () {
+      recogRunning = true; listening = true; renderState(); renderLive();
+    };
+    r.onspeechstart = function () {
+      if (speaking && performance.now() >= echoGuardUntil) bargeIn();
+    };
+    r.onspeechend = function () {
+      if (!utter) return;
+      utter.speechEndAt = performance.now();
+      if (mode === "auto" && !utter.endpointKind) utter.endpointKind = "vad";
+    };
+    r.onresult = function (e) {
+      var now = performance.now();
+      if (speaking) {
+        if (now < echoGuardUntil) return;  // almost certainly our own voice
+        bargeIn();
+      }
+      if (!utter) resetUtterance();
+      utter.lastResultAt = now;
+      var interim = "";
+      for (var i = e.resultIndex; i < e.results.length; i++) {
+        var res = e.results[i];
+        var alt = res[0];
+        if (!alt) continue;
+        if (res.isFinal) {
+          var t = String(alt.transcript || "").trim();
+          if (t) utter.finalText += (utter.finalText ? " " : "") + t;
+          if (typeof alt.confidence === "number" && alt.confidence > 0) utter.confidence = alt.confidence;
+        } else {
+          interim += alt.transcript;
+        }
+      }
+      utter.interim = interim.trim();
+      renderLive();
+      if (mode === "auto" && !pendingCommit) scheduleSettle();
+    };
+    r.onerror = function (e) {
+      var code = e && e.error ? e.error : "unknown";
+      if (code === "aborted") return;
+      if (code === "no-speech") { setStatus("No speech detected — nothing to send."); return; }
+      if (code === "not-allowed" || code === "service-not-allowed") {
+        recogWanted = false; pttHeld = false;
+        setStatus("Microphone permission denied. Allow it in the browser's site settings, or use the type-a-turn box.", true);
+        return;
+      }
+      if (code === "audio-capture") {
+        recogWanted = false;
+        setStatus("No microphone available to capture from.", true);
+        return;
+      }
+      if (code === "network") {
+        setStatus("The browser's speech service is unreachable (network error) — which is itself the tell that this recogniser is not local.", true);
+        return;
+      }
+      setStatus("Speech recognition error: " + code, true);
+    };
+    r.onend = function () {
+      recogRunning = false;
+      if (pendingCommit) {
+        pendingCommit = false;
+        clearTimeout(commitFallback);
+        listening = false;
+        renderState();
+        commitUtterance();
+        return;
+      }
+      if (recogWanted) {
+        // Chrome ends the session on its own timers; keep the floor open.
+        setTimeout(function () {
+          if (recogWanted && !recogRunning) { try { r.start(); } catch (e) {} }
+        }, 120);
+        return;
+      }
+      listening = false;
+      renderState(); renderLive();
+    };
+    return r;
+  }
+
+  function ensureRecognizer() {
+    if (!SUPPORT.asr) return null;
+    if (!recog) recog = buildRecognizer();
+    return recog;
+  }
+
+  function startListening() {
+    if (!SUPPORT.asr) return false;
+    if (!micAcknowledged()) { openMicModal(); return false; }
+    var r = ensureRecognizer();
+    if (!r) return false;
+    recogWanted = true;
+    if (!recogRunning) {
+      try { r.start(); }
+      catch (e) { /* InvalidStateError when already starting — harmless */ }
+    }
+    renderState();
+    return true;
+  }
+
+  function stopListening() {
+    recogWanted = false;
+    clearTimeout(settleTimer); settleTimer = null;
+    if (recog && recogRunning) { try { recog.stop(); } catch (e) {} }
+    listening = false;
+    renderState();
+  }
+
+  function scheduleSettle() {
+    clearTimeout(settleTimer);
+    if (!utter || !utter.finalText || utter.interim) return;
+    settleTimer = setTimeout(function () { commitUtterance(); }, SETTLE_MS);
+  }
+
+  function bargeIn() {
+    cancelSpeech();
+    setStatus("Barge-in — playback cancelled mid-sentence. A full-duplex model would have kept listening the whole time anyway.");
+  }
+
+  function commitUtterance() {
+    clearTimeout(settleTimer); settleTimer = null;
+    if (!utter) return;
+    var text = (utter.finalText + (utter.interim ? " " + utter.interim : "")).trim();
+    var tCommit = performance.now();
+    var tEnd = utter.endAt || utter.speechEndAt || utter.lastResultAt || tCommit;
+    var endpoint = utter.endpointKind || (mode === "ptt" ? "button" : "vad");
+    var conf = utter.confidence;
+    resetUtterance();
+    if (!text) return;
+    startTurn(text, tEnd, tCommit, endpoint, conf);
+  }
+
+  // ---- push-to-talk wiring ----
+  function pttDown(e) {
+    if (mode !== "ptt" || !SUPPORT.asr || pttHeld) return;
+    if (e && e.preventDefault) e.preventDefault();
+    cancelSpeech();              // barge-in: taking the floor stops playback
+    pttHeld = true;
+    resetUtterance();
+    if (!startListening()) { pttHeld = false; }
+    renderTalkButton();
+  }
+  var commitFallback = null;
+  function pttUp(e) {
+    if (mode !== "ptt" || !pttHeld) return;
+    if (e && e.preventDefault) e.preventDefault();
+    pttHeld = false;
+    if (utter) { utter.endAt = performance.now(); utter.endpointKind = "button"; }
+    pendingCommit = true;
+    recogWanted = false;
+    if (recog) { try { recog.stop(); } catch (err) {} }
+    // The recogniser may never fire `end` if it was still starting up when the
+    // button was released; don't strand the turn waiting for it.
+    clearTimeout(commitFallback);
+    commitFallback = setTimeout(function () {
+      if (!pendingCommit) return;
+      pendingCommit = false;
+      listening = false; renderState();
+      if (recog) { try { recog.abort(); } catch (err) {} }
+      commitUtterance();
+    }, 1800);
+    renderTalkButton();
+  }
+  talkBtn.addEventListener("pointerdown", function (e) {
+    if (mode !== "ptt") return;
+    try { talkBtn.setPointerCapture(e.pointerId); } catch (err) {}
+    pttDown(e);
+  });
+  talkBtn.addEventListener("pointerup", function (e) { if (mode === "ptt") pttUp(e); });
+  talkBtn.addEventListener("pointercancel", function (e) { if (mode === "ptt") pttUp(e); });
+  // Click covers both pointer and keyboard activation; push-to-talk is handled
+  // by the pointer/space handlers instead, so it ignores clicks.
+  talkBtn.addEventListener("click", function () { if (mode === "auto") toggleAuto(); });
+  talkBtn.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+  function toggleAuto() {
+    if (!SUPPORT.asr) return;
+    if (recogWanted) {
+      stopListening();
+      setStatus("Floor closed.");
+    } else {
+      resetUtterance();
+      if (startListening()) {
+        setStatus("Floor open — the recogniser decides when you've stopped. Watch stage 1.");
+      }
+    }
+    renderTalkButton();
+  }
+
+  // Space bar as push-to-talk, when not typing.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== " " && e.code !== "Space") return;
+    var t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+    if (document.querySelector(".scrim.open")) return;
+    if (mode !== "ptt" || e.repeat) { if (mode === "ptt") e.preventDefault(); return; }
+    e.preventDefault();
+    pttDown(null);
+  });
+  document.addEventListener("keyup", function (e) {
+    if (e.key !== " " && e.code !== "Space") return;
+    var t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT")) return;
+    if (mode !== "ptt") return;
+    e.preventDefault();
+    pttUp(null);
+  });
+
+  // ================= typed fallback =================
+  function sendTyped() {
+    var text = typedEl.value.trim();
+    if (!text) return;
+    typedEl.value = "";
+    cancelSpeech();
+    var now = performance.now();
+    startTurn(text, now, now, "typed", null);
+  }
+  sendTypedBtn.addEventListener("click", sendTyped);
+  typedEl.addEventListener("keydown", function (e) {
+    if (e.key === "Enter") { e.preventDefault(); sendTyped(); }
+  });
+
+  // ================= the turn =================
+  function startTurn(text, tEnd, tCommit, endpoint, confidence) {
+    if (!apiKey) {
+      addUserBubble(text, [{ text: endpoint }]);
+      setStatus("Add your Anthropic key to complete the loop — click “no key” above.", true);
+      openKeyModal();
+      return;
+    }
+    // A new utterance while a request is in flight replaces it — the natural
+    // reading of "the user started talking again", and a turn worth logging.
+    if (thinking && abortCtl) {
+      if (active) {
+        active.note = "superseded";
+        active.tts = null; active.total = null;
+        finalizeTiming(active);
+      }
+      try { abortCtl.abort(); } catch (e) {}
+    }
+    cancelSpeech();
+
+    turnSeq += 1;
+    var rec = {
+      n: turnSeq, mode: mode, endpoint: endpoint, model: currentModel().label,
+      transcript: text, confidence: confidence,
+      tEnd: tEnd, tCommit: tCommit, tFirstToken: null, tFirstAudio: null,
+      asr: endpoint === "typed" ? null : (tCommit - tEnd),
+      ttft: null, tts: null, total: null, note: null, logged: false
+    };
+    active = rec;
+
+    var meta = [{ text: endpoint === "button" ? "endpoint: button" : endpoint === "vad" ? "endpoint: vad guess" : "typed" }];
+    if (typeof confidence === "number") {
+      var pct = Math.round(confidence * 100);
+      meta.push({ text: "confidence " + pct + "%", warn: pct < 75 });
+    }
+    addUserBubble(text, meta);
+
+    history.push({ role: "user", text: text });
+    trimHistory();
+
+    var ref = addAssistantBubble();
+    thinking = true; renderState();
+
+    ttsBuf = ""; ttsPending = 0; ttsFirstFlushed = false; streamDone = false;
+    ttsSuppressed = false;
+
+    var acc = "";
+    streamMessage(buildMessages(), function (chunk) {
+      if (active !== rec) return;
+      if (rec.tFirstToken === null) {
+        rec.tFirstToken = performance.now();
+        rec.ttft = rec.tFirstToken - rec.tCommit;
+        ref.chip.textContent = "first token " + Math.round(rec.ttft) + " ms";
+      }
+      acc += chunk;
+      setBubbleText(ref, acc, true);
+      ttsBuf += chunk;
+      pumpTts(false);
+    }).then(function (res) {
+      streamDone = true;
+      var finalText = (res.text || acc).trim();
+      setBubbleText(ref, finalText || "(no text returned)", false);
+      if (active === rec) {
+        history.push({ role: "assistant", text: finalText });
+        trimHistory();
+        pumpTts(true);
+        if (!speakOut || !SUPPORT.tts) {
+          rec.tts = null; rec.total = null;
+          ref.chip.className = "chip";
+          ref.chip.textContent = rec.ttft !== null ? ("ttft " + Math.round(rec.ttft) + " ms · not spoken") : "not spoken";
+          finalizeTiming(rec);
+        } else if (ttsPending === 0 && rec.tFirstAudio === null) {
+          // Nothing was ever spoken: cancelled by a barge-in, or an empty reply.
+          rec.note = rec.note || (ttsSuppressed ? "barge-in" : "no audio");
+          rec.tts = null; rec.total = null;
+          finalizeTiming(rec);
+        }
+        thinking = false; renderState();
+        if (!statusEl.classList.contains("err")) setStatus("");
+      }
+    }).catch(function (err) {
+      streamDone = true;
+      if (active !== rec) return;
+      thinking = false; speaking = false; renderState();
+      var isAbort = err && err.name === "AbortError";
+      setBubbleText(ref, acc || (isAbort ? "(interrupted)" : "(no reply)"), false);
+      ref.chip.className = "chip warnish";
+      ref.chip.textContent = isAbort ? "interrupted" : "failed";
+      rec.note = rec.note || (isAbort ? "interrupted" : "error");
+      rec.tts = null; rec.total = null;
+      finalizeTiming(rec);
+      if (!isAbort) {
+        setStatus(friendlyError(err), true);
+        if (err instanceof ApiError && err.status === 401) openKeyModal();
+      }
+    });
+  }
+
+  function finalizeTiming(rec) {
+    if (rec.logged) return;
+    if (rec.tFirstAudio !== null && rec.tFirstToken !== null) {
+      rec.tts = rec.tFirstAudio - rec.tFirstToken;
+      // Only a spoken turn has a stop-talking-to-start-speaking number. A typed
+      // turn has no stage 1, so reporting a "total" for it would be a lie.
+      rec.total = rec.asr === null ? null : (rec.tFirstAudio - rec.tEnd);
+    }
+    rec.logged = true;
+    turns.push(rec);
+    if (rec.asr !== null && !rec.note) samples.asr.push(rec.asr);
+    if (rec.ttft !== null && !rec.note) samples.ttft.push(rec.ttft);
+    if (rec.tts !== null && !rec.note) samples.tts.push(rec.tts);
+    if (rec.total !== null && rec.asr !== null && !rec.note) samples.total.push(rec.total);
+    renderBudget(); renderTurnLog();
+  }
+
+  function trimHistory() {
+    if (history.length > HISTORY_TURNS * 2) history = history.slice(-HISTORY_TURNS * 2);
+  }
+  function buildMessages() {
+    return history.map(function (h) {
+      return { role: h.role, content: [{ type: "text", text: h.text }] };
+    });
+  }
+
+  // ================= streaming API call =================
+  function ApiError(status, body) { this.status = status; this.body = body; }
+  ApiError.prototype = Object.create(Error.prototype);
+
+  function friendlyError(err) {
+    if (err instanceof ApiError) {
+      var msg = err.body && err.body.error && err.body.error.message ? err.body.error.message : "";
+      if (err.status === 401) return "API key rejected (401). Open the key panel and re-enter a valid key.";
+      if (err.status === 403) return "Access denied (403). This key may not have access to " + currentModel().label + ".";
+      if (err.status === 404) return "Not found (404). " + (msg || "The model id may be unavailable to this key.");
+      if (err.status === 429) return "Rate limited (429). Wait a moment, then try again.";
+      if (err.status === 400) return "Request rejected (400). " + (msg || "");
+      if (err.status >= 500) return "Anthropic service error (" + err.status + "). Retry shortly.";
+      return "API error " + err.status + (msg ? ": " + msg : "");
+    }
+    if (err && err.name === "AbortError") return "Stopped.";
+    return "Network error: " + String(err && err.message ? err.message : err) +
+      " (a browser extension or ad-blocker can block api.anthropic.com).";
+  }
+
+  function streamMessage(msgs, onText) {
+    var model = currentModel();
+    var body = {
+      model: model.id,
+      max_tokens: MAX_TOKENS,
+      system: SYSTEM,
+      messages: msgs,
+      stream: true
+    };
+    if (model.thinking) body.thinking = model.thinking;
+
+    abortCtl = new AbortController();
+    return fetch(API_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "anthropic-dangerous-direct-browser-access": "true"
+      },
+      body: JSON.stringify(body),
+      signal: abortCtl.signal
+    }).then(function (resp) {
+      if (!resp.ok) {
+        return resp.json().catch(function () { return null; }).then(function (j) {
+          throw new ApiError(resp.status, j);
+        });
+      }
+      var reader = resp.body.getReader();
+      var dec = new TextDecoder();
+      var buf = "";
+      var blocks = [];
+      var stopReason = null;
+
+      function handleEvent(dataStr) {
+        var evt;
+        try { evt = JSON.parse(dataStr); } catch (e) { return; }
+        switch (evt.type) {
+          case "content_block_start":
+            var cb = evt.content_block || {};
+            blocks[evt.index] = { type: cb.type || "other", text: "" };
+            break;
+          case "content_block_delta":
+            var d = evt.delta || {}, blk = blocks[evt.index];
+            if (!blk) break;
+            if (d.type === "text_delta") { blk.text += d.text; if (onText) onText(d.text); }
+            break;
+          case "message_delta":
+            if (evt.delta && evt.delta.stop_reason) stopReason = evt.delta.stop_reason;
+            break;
+          case "error":
+            throw new ApiError((evt.error && evt.error.status) || 0, evt);
+        }
+      }
+
+      function pump() {
+        return reader.read().then(function (res) {
+          if (res.done) {
+            var text = blocks.filter(function (b) { return b && b.type === "text"; })
+              .map(function (b) { return b.text; }).join("");
+            return { text: text, stop_reason: stopReason };
+          }
+          buf += dec.decode(res.value, { stream: true });
+          var idx;
+          while ((idx = buf.indexOf("\n")) >= 0) {
+            var line = buf.slice(0, idx); buf = buf.slice(idx + 1);
+            line = line.replace(/\r$/, "");
+            if (line.indexOf("data:") === 0) {
+              var payload = line.slice(5).trim();
+              if (payload && payload !== "[DONE]") handleEvent(payload);
+            }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    });
+  }
+
+  // ================= modals =================
+  function openScrim(id) { $(id).classList.add("open"); }
+  function closeScrim(id) { $(id).classList.remove("open"); }
+  function closeAllScrims() {
+    ["key-scrim", "mic-scrim", "trust-scrim", "help-scrim"].forEach(closeScrim);
+  }
+
+  function openKeyModal() {
+    $("key-input").value = apiKey || "";
+    $("key-err").textContent = "";
+    openScrim("key-scrim");
+    setTimeout(function () { $("key-input").focus(); }, 30);
+  }
+  keystatBtn.addEventListener("click", openKeyModal);
+  $("key-save").addEventListener("click", function () {
+    var v = $("key-input").value.trim();
+    if (!v) { $("key-err").textContent = "Enter a key, or use Forget key to clear it."; return; }
+    if (v.indexOf("sk-ant-") !== 0) {
+      $("key-err").textContent = "That doesn't look like an Anthropic key (they start with sk-ant-). Saving anyway is allowed, but check it if calls fail.";
+    }
+    saveKey(v);
+    closeScrim("key-scrim");
+    setStatus("Key saved locally.");
+  });
+  $("key-forget").addEventListener("click", function () {
+    forgetKey();
+    $("key-input").value = "";
+    $("key-err").textContent = "";
+    setStatus("Key forgotten (removed from this browser).");
+  });
+  $("key-to-trust").addEventListener("click", function () {
+    closeScrim("key-scrim"); openScrim("trust-scrim");
+  });
+
+  function openMicModal() { openScrim("mic-scrim"); }
+  $("mic-ok").addEventListener("click", function () {
+    ackMic();
+    closeScrim("mic-scrim");
+    if (mode === "ptt") {
+      setStatus("Microphone approved. Hold Talk (or Space) to take the floor.");
+    } else {
+      resetUtterance();
+      startListening();
+    }
+  });
+  $("mic-cancel").addEventListener("click", function () {
+    closeScrim("mic-scrim");
+    pttHeld = false; recogWanted = false;
+    renderTalkButton();
+    setStatus("Microphone not enabled — the type-a-turn box still exercises the model and speech-out stages.");
+  });
+
+  $("trust-btn").addEventListener("click", function () { openScrim("trust-scrim"); });
+  $("trust-close").addEventListener("click", function () { closeScrim("trust-scrim"); });
+  $("help-btn").addEventListener("click", function () { openScrim("help-scrim"); });
+  $("help-close").addEventListener("click", function () { closeScrim("help-scrim"); });
+
+  ["key-scrim", "mic-scrim", "trust-scrim", "help-scrim"].forEach(function (id) {
+    $(id).addEventListener("click", function (e) { if (e.target === $(id)) closeScrim(id); });
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") closeAllScrims();
+  });
+
+  // ================= boot =================
+  function boot() {
+    loadKey();
+    initModels();
+
+    try {
+      var savedMode = localStorage.getItem(MODE_STORE);
+      if (savedMode === "auto") { mode = "auto"; $("mode-ptt").classList.remove("on"); $("mode-auto").classList.add("on"); }
+      var savedRate = parseFloat(localStorage.getItem(RATE_STORE));
+      if (savedRate >= 0.7 && savedRate <= 1.6) { rate = savedRate; rateEl.value = String(rate); }
+    } catch (e) {}
+    rateVal.textContent = rate.toFixed(2) + "×";
+
+    if (SUPPORT.tts) {
+      loadVoices();
+      if (typeof window.speechSynthesis.onvoiceschanged !== "undefined") {
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+      }
+      // Some engines populate the list a beat late even without the event.
+      setTimeout(loadVoices, 400);
+    } else {
+      speakOut = false;
+      speakToggle.classList.remove("on");
+      speakToggle.textContent = "speech out: unavailable";
+      speakToggle.disabled = true;
+      voiceSel.disabled = true;
+      rateEl.disabled = true;
+      var o = document.createElement("option");
+      o.textContent = "(no speech synthesis)";
+      voiceSel.appendChild(o);
+      $("voice-origin").textContent = "n/a";
+    }
+
+    renderBanner();
+    resetUtterance();
+    renderState();
+    renderBudget();
+    renderTurnLog();
+    updateEmpty();
+
+    if (!apiKey) {
+      setStatus("Bring your own Anthropic key to close the loop — it stays in your browser. Click “no key” above.");
+    } else if (!SUPPORT.asr) {
+      setStatus("No speech recognition in this browser — type a turn instead; stages 2–4 are still measured.");
+    } else {
+      setStatus("Ready. Hold Talk (or Space) to speak. Read “privacy” before the mic prompt.");
+    }
+  }
+
+  window.addEventListener("beforeunload", function () { cancelSpeech(); });
+  boot();
+})();
+</script>
+</body>
+</html>
