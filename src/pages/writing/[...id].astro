@@ -1,0 +1,38 @@
+---
+// A writing entry on its own route. Mirrors src/pages/lab/[...id].astro, minus
+// the machine-log chrome: these posts are Wolf's own prose, so the body needs
+// no "written by the machine" framing at the lighter levels — only the summary
+// and the tag row vary by depth.
+import Base from '../../layouts/Base.astro';
+import LevelText from '../../components/LevelText.astro';
+import { getCollection, render } from 'astro:content';
+
+export async function getStaticPaths() {
+  const entries = await getCollection('writing');
+  return entries.map((entry) => ({ params: { id: entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const { title, date, tags, draft, summary, summaryLevels } = entry.data;
+const ts = date.toISOString().slice(0, 10);
+---
+<Base title={`${title} — Writing`} description={summary}>
+  <div class="chrome flex items-center gap-2">
+    <span>{ts}</span>
+    {draft && <span class="text-[var(--color-accent)]">[draft]</span>}
+  </div>
+  <h1 class="mt-2 text-2xl font-semibold tracking-tight">{title}</h1>
+  <p class="mt-2 text-[var(--color-muted)] leading-relaxed">
+    <LevelText technical={summary} {...summaryLevels} />
+  </p>
+  {tags.length > 0 && (
+    <div class="chrome mt-2 flex flex-wrap gap-2" data-variant="technical aware">
+      {tags.map((t) => <span>#{t}</span>)}
+    </div>
+  )}
+  <article class="prose mt-8 leading-relaxed [&_h2]:mt-6 [&_h2]:font-semibold [&_p]:mt-3 [&_code]:font-[var(--font-mono)]">
+    <Content />
+  </article>
+  <a href="/writing" class="chrome mt-8 inline-block hover:!text-[var(--color-ink)]">← back to writing</a>
+</Base>

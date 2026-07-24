@@ -1,6 +1,6 @@
 ---
-import Base from '../layouts/Base.astro';
-import LevelText from '../components/LevelText.astro';
+import Base from '../../layouts/Base.astro';
+import LevelText from '../../components/LevelText.astro';
 import { getCollection } from 'astro:content';
 
 const entries = (await getCollection('writing'))
@@ -21,7 +21,11 @@ const entries = (await getCollection('writing'))
     {entries.map((e) => (
       <div class="border-b border-[var(--color-line)] py-4">
         <div class="chrome">{e.data.date.toISOString().slice(0, 10)}</div>
-        <h3 class="mt-1 font-semibold tracking-tight">{e.data.title}</h3>
+        <h3 class="mt-1 font-semibold tracking-tight">
+          <a href={`/writing/${e.id}/`} class="hover:!text-[var(--color-accent)] transition-colors">
+            {e.data.title}
+          </a>
+        </h3>
         <p class="mt-1 text-[var(--color-muted)] text-sm leading-relaxed">
           <LevelText technical={e.data.summary} {...e.data.summaryLevels} />
         </p>
