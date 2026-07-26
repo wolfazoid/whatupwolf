@@ -411,3 +411,19 @@ export function renderIdleNotice({ sweepDate, ideas = [], skipped = [], repoUrl 
   L.push(`[IDEAS.md](${repoUrl}/blob/main/engine/IDEAS.md) · [BACKLOG.md](${repoUrl}/blob/main/engine/BACKLOG.md)`);
   return L.join('\n');
 }
+
+// Walk the backlog for the first item the loop can actually build, keeping the ones
+// passed over. `hasPr` is injected so the decision stays pure and testable; the
+// runner supplies the gh-backed lookup. Returning the skipped list is what lets the
+// idle notice say "blocked behind lab/foo" instead of the misleading "backlog empty".
+export function partitionBuildable(items, hasPr) {
+  const taken = [];
+  const skipped = [];
+  for (;;) {
+    const next = pickBuildableItem(items, taken);
+    if (!next) return { next: null, skipped };
+    if (!hasPr(next.branch)) return { next, skipped };
+    skipped.push({ title: shortTitle(next.item.title), branch: next.branch });
+    taken.push(next.branch);
+  }
+}

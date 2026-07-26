@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickBuildableItem, prListArgs, markItemDone, slugify, renderLabEntry, parseCycleReport,
   resolveStatus, shortTitle, draftForType, lockIsFree, newLabEntriesInStatus,
-  latestIdeaDate, ideasBranch,
+  latestIdeaDate, ideasBranch, partitionBuildable,
 } from './lib.mjs';
 import { publishBranch } from './publish.mjs';
 
@@ -125,14 +125,11 @@ function branchHasPr(branch) {
 // function only supplies the answers to "is this branch taken?", one lookup at a
 // time so a long backlog doesn't fan out a gh call per item.
 function pickNextBuildable(items) {
-  const taken = [];
-  for (;;) {
-    const next = pickBuildableItem(items, taken);
-    if (!next) return null;
-    if (!branchHasPr(next.branch)) return next;
-    console.log(`Skipping "${shortTitle(next.item.title)}" — ${next.branch} has already been built into a PR.`);
-    taken.push(next.branch);
+  const result = partitionBuildable(items, branchHasPr);
+  for (const s of result.skipped) {
+    console.log(`Skipping "${s.title}" — ${s.branch} has already been built into a PR.`);
   }
+  return result;
 }
 
 function buildPrompt(task) {
@@ -264,7 +261,7 @@ function runCycleLocked() {
   // 2. Pick the task, skipping anything already in flight.
   const backlogMd = readFileSync(BACKLOG, 'utf8');
   const items = parseBacklog(backlogMd);
-  const picked = pickNextBuildable(items);
+  const { next: picked, skipped } = pickNextBuildable(items);
   if (!picked) {
     console.log('Nothing buildable — the backlog is empty or every unchecked item has already been built into a PR.');
     runIdleIdeation();

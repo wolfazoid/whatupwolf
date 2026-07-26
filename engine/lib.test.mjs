@@ -4,7 +4,7 @@ import { slugify, renderLabEntry, parseCycleReport, parsePrivateReport, resolveS
 import { newLabEntriesInStatus } from './lib.mjs';
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
-import { branchForItem, pickBuildableItem, prListArgs } from './lib.mjs';
+import { branchForItem, pickBuildableItem, prListArgs, partitionBuildable } from './lib.mjs';
 import { lockIsFree } from './lib.mjs';
 import { latestIdeaDate, ideasBranch, parseIdeas, idleMarker, sweepReported, IDLE_ISSUE_TITLE, renderIdleNotice } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
@@ -701,5 +701,38 @@ describe('renderIdleNotice', () => {
     expect(out).toContain('engine/IDEAS-rejected.md');
     expect(out).toContain('/blob/main/engine/IDEAS.md');
     expect(out).toContain('/blob/main/engine/BACKLOG.md');
+  });
+});
+
+describe('partitionBuildable', () => {
+  const items = [
+    { title: 'Alpha task', done: true },
+    { title: 'Beta task', done: false },
+    { title: 'Gamma task', done: false },
+  ];
+
+  it('returns the first unchecked item and no skips when nothing has a PR', () => {
+    const { next, skipped } = partitionBuildable(items, () => false);
+    expect(next.item.title).toBe('Beta task');
+    expect(skipped).toEqual([]);
+  });
+
+  it('skips items whose branch already has a PR and records them', () => {
+    const betaBranch = branchForItem('Beta task');
+    const { next, skipped } = partitionBuildable(items, (b) => b === betaBranch);
+    expect(next.item.title).toBe('Gamma task');
+    expect(skipped).toEqual([{ title: shortTitle('Beta task'), branch: betaBranch }]);
+  });
+
+  it('returns next=null and every skipped item when all are blocked', () => {
+    const { next, skipped } = partitionBuildable(items, () => true);
+    expect(next).toBeNull();
+    expect(skipped.map((s) => s.title)).toEqual([shortTitle('Beta task'), shortTitle('Gamma task')]);
+  });
+
+  it('returns next=null and no skips when the backlog is genuinely empty', () => {
+    const { next, skipped } = partitionBuildable([{ title: 'Done', done: true }], () => false);
+    expect(next).toBeNull();
+    expect(skipped).toEqual([]);
   });
 });
