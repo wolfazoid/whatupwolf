@@ -659,7 +659,7 @@ describe('renderIdleNotice', () => {
   it('says the backlog is empty when nothing was skipped', () => {
     const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: [] });
     expect(out).toContain('no unchecked items');
-    expect(out).not.toContain('blocked behind');
+    expect(out).not.toContain('parked behind');
   });
 
   it('names each skipped item and its branch when the backlog is blocked', () => {
@@ -675,7 +675,7 @@ describe('renderIdleNotice', () => {
 
   it('reports the sweep date and the untriaged count', () => {
     const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas });
-    expect(out).toContain('2026-07-25');
+    expect(out).toContain('Last idea sweep: **2026-07-25**');
     expect(out).toContain('**3**');
   });
 
