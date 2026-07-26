@@ -376,3 +376,38 @@ export function sweepReported(texts, sweepDate) {
   const marker = idleMarker(sweepDate);
   return (texts || []).some((t) => String(t).includes(marker));
 }
+
+export const REPO_URL = 'https://github.com/wolfazoid/whatupwolf';
+
+// The body of an idle notice — used verbatim for both the initial issue and every
+// later comment, so a reader who only sees one comment still gets full context.
+// "Nothing buildable" conflates two different situations — a genuinely empty backlog
+// and one whose remaining items are all parked behind an open PR. The notice
+// distinguishes them, because the fix differs (queue work vs. merge a PR).
+export function renderIdleNotice({ sweepDate, ideas = [], skipped = [], repoUrl = REPO_URL }) {
+  const L = [idleMarker(sweepDate), ''];
+
+  if (skipped.length) {
+    L.push(`The loop found nothing buildable, but the backlog is **not** empty — ${skipped.length} unchecked item(s) are parked behind an existing PR:`, '');
+    for (const s of skipped) L.push(`- ${s.title} — \`${s.branch}\``);
+  } else {
+    L.push('The loop found nothing buildable — the backlog has **no unchecked items**.');
+  }
+  L.push('');
+  L.push(`Last idea sweep: **${sweepDate || 'none yet'}** · untriaged ideas in \`engine/IDEAS.md\`: **${ideas.length}**`);
+  L.push('');
+
+  const dates = [...new Set(ideas.map((i) => i.date))].sort().reverse();
+  for (const d of dates) {
+    L.push(`### ${d}`, '');
+    for (const idea of ideas.filter((i) => i.date === d)) {
+      L.push(`- ${idea.group ? `_${idea.group}_ — ` : ''}${idea.text}`);
+    }
+    L.push('');
+  }
+
+  L.push('**Triage:** queue → copy the bullet into `engine/BACKLOG.md` as `- [ ]` and delete it from the inbox · reject → move it to `engine/IDEAS-rejected.md` · ignore → leave it.');
+  L.push('');
+  L.push(`[IDEAS.md](${repoUrl}/blob/main/engine/IDEAS.md) · [BACKLOG.md](${repoUrl}/blob/main/engine/BACKLOG.md)`);
+  return L.join('\n');
+}

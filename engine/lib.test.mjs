@@ -6,7 +6,7 @@ import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.m
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { branchForItem, pickBuildableItem, prListArgs } from './lib.mjs';
 import { lockIsFree } from './lib.mjs';
-import { latestIdeaDate, ideasBranch, parseIdeas, idleMarker, sweepReported, IDLE_ISSUE_TITLE } from './lib.mjs';
+import { latestIdeaDate, ideasBranch, parseIdeas, idleMarker, sweepReported, IDLE_ISSUE_TITLE, renderIdleNotice } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -641,5 +641,65 @@ describe('idleMarker / sweepReported', () => {
 
   it('tolerates a missing texts argument', () => {
     expect(sweepReported(undefined, '2026-07-25')).toBe(false);
+  });
+});
+
+describe('renderIdleNotice', () => {
+  const ideas = [
+    { date: '2026-07-24', group: 'Ideas', text: 'alpha' },
+    { date: '2026-07-25', group: 'Ideas', text: 'beta' },
+    { date: '2026-07-25', group: 'Opportunities', text: 'gamma' },
+  ];
+
+  it('leads with the marker so the post is self-identifying', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: [] });
+    expect(out.split('\n')[0]).toBe('<!-- engine-idle: sweep=2026-07-25 -->');
+  });
+
+  it('says the backlog is empty when nothing was skipped', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: [] });
+    expect(out).toContain('no unchecked items');
+    expect(out).not.toContain('blocked behind');
+  });
+
+  it('names each skipped item and its branch when the backlog is blocked', () => {
+    const out = renderIdleNotice({
+      sweepDate: '2026-07-25',
+      ideas: [],
+      skipped: [{ title: 'Give writing posts their own pages', branch: 'lab/give-writing-posts' }],
+    });
+    expect(out).toContain('not** empty');
+    expect(out).toContain('Give writing posts their own pages');
+    expect(out).toContain('lab/give-writing-posts');
+  });
+
+  it('reports the sweep date and the untriaged count', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas });
+    expect(out).toContain('2026-07-25');
+    expect(out).toContain('**3**');
+  });
+
+  it('groups ideas by sweep date, newest first', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas });
+    expect(out.indexOf('### 2026-07-25')).toBeLessThan(out.indexOf('### 2026-07-24'));
+    expect(out).toContain('- _Ideas_ — beta');
+    expect(out).toContain('- _Opportunities_ — gamma');
+  });
+
+  it('omits the idea list entirely when there is nothing untriaged', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: [] });
+    expect(out).not.toContain('###');
+    expect(out).toContain('**0**');
+  });
+
+  it('says "none yet" when no sweep has ever run', () => {
+    expect(renderIdleNotice({ sweepDate: null, ideas: [] })).toContain('none yet');
+  });
+
+  it('always carries the triage crib and both file links', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: [] });
+    expect(out).toContain('engine/IDEAS-rejected.md');
+    expect(out).toContain('/blob/main/engine/IDEAS.md');
+    expect(out).toContain('/blob/main/engine/BACKLOG.md');
   });
 });
