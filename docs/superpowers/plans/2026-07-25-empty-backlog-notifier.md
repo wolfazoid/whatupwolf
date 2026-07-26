@@ -587,7 +587,7 @@ describe('notify (dry mode)', () => {
     vi.spyOn(console, 'log').mockImplementation((m) => logs.push(String(m)));
 
     notifyIdle({
-      repoDir: '/tmp/repo',
+      repoDir: '/tmp',
       sweepDate: '2026-07-25',
       ideas: [{ date: '2026-07-25', group: 'Ideas', text: 'alpha' }],
       skipped: [],
@@ -596,15 +596,16 @@ describe('notify (dry mode)', () => {
 
     const joined = logs.join('\n');
     expect(joined).toContain('[dry-run]');
-    expect(joined).toContain('Engine idle');
+    expect(joined).toContain('<!-- engine-idle: sweep=2026-07-25 -->');
     expect(joined).toContain('alpha');
   });
 
   it('previews the close it would perform and writes nothing', () => {
     const logs = [];
     vi.spyOn(console, 'log').mockImplementation((m) => logs.push(String(m)));
+    vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    notifyBuilding({ repoDir: '/tmp/repo', nowBuilding: 'Some task', dry: true });
+    notifyBuilding({ repoDir: '/tmp', nowBuilding: 'Some task', dry: true });
 
     expect(logs.join('\n')).toContain('[dry-run]');
   });
@@ -662,19 +663,38 @@ function findIdleIssue(repoDir) {
 
 // Post the idle notice, unless this sweep has already been reported. Opens the
 // standing issue the first time and comments on it thereafter.
-export function notifyIdle({ repoDir, sweepDate, ideas = [], skipped = [], dry = false }) {
+// Look up the standing issue, tolerating a failed lookup differently by mode.
+// Live: a lookup we cannot trust must abort the notice — guessing "no issue"
+// would open a duplicate on every tick. Dry: nothing can be written anyway, so
+// degrade to previewing a fresh issue rather than showing the operator nothing.
+// (CI runs `npm test` with no GH_TOKEN, so the lookup genuinely does fail there.)
+function lookupOrNull(repoDir, dry) {
   try {
-    const issue = findIdleIssue(repoDir);
-    if (issue && sweepReported(issue.texts, sweepDate)) {
-      console.log(`Idle notice: sweep ${sweepDate || 'none'} already reported on issue #${issue.number}.`);
-      return;
+    return { ok: true, issue: findIdleIssue(repoDir) };
+  } catch (err) {
+    if (!dry) {
+      console.error(`Could not read existing issues (${err.message}) — skipping the idle notice.`);
+      return { ok: false, issue: null };
     }
-    const body = renderIdleNotice({ sweepDate, ideas, skipped });
-    if (dry) {
-      console.log(`[dry-run] would ${issue ? `comment on issue #${issue.number}` : `open issue "${IDLE_ISSUE_TITLE}"`}:`);
-      console.log(body);
-      return;
-    }
+    console.log(`[dry-run] could not read existing issues (${err.message}) — previewing a fresh issue.`);
+    return { ok: true, issue: null };
+  }
+}
+
+export function notifyIdle({ repoDir, sweepDate, ideas = [], skipped = [], dry = false }) {
+  const { ok, issue } = lookupOrNull(repoDir, dry);
+  if (!ok) return;
+  if (issue && sweepReported(issue.texts, sweepDate)) {
+    console.log(`Idle notice: sweep ${sweepDate || 'none'} already reported on issue #${issue.number}.`);
+    return;
+  }
+  const body = renderIdleNotice({ sweepDate, ideas, skipped });
+  if (dry) {
+    console.log(`[dry-run] would ${issue ? `comment on issue #${issue.number}` : `open issue "${IDLE_ISSUE_TITLE}"`}:`);
+    console.log(body);
+    return;
+  }
+  try {
     if (issue) {
       gh(['issue', 'comment', String(issue.number), '--body', body], repoDir);
       console.log(`Idle notice: commented on issue #${issue.number}.`);
@@ -688,16 +708,21 @@ export function notifyIdle({ repoDir, sweepDate, ideas = [], skipped = [], dry =
 }
 
 // Close the standing idle issue because the loop has work again. No-op when no
-// issue is open, which is the common case.
+// issue is open, which is the common case. Dry mode always logs, so a preview
+// never leaves the operator wondering whether the step ran.
 export function notifyBuilding({ repoDir, nowBuilding, dry = false }) {
+  const { ok, issue } = lookupOrNull(repoDir, dry);
+  if (!ok) return;
+  if (!issue) {
+    if (dry) console.log('[dry-run] no open idle issue to close.');
+    return;
+  }
+  const body = `Back to work — building: ${nowBuilding}`;
+  if (dry) {
+    console.log(`[dry-run] would comment on and close issue #${issue.number}: ${body}`);
+    return;
+  }
   try {
-    const issue = findIdleIssue(repoDir);
-    if (!issue) return;
-    const body = `Back to work — building: ${nowBuilding}`;
-    if (dry) {
-      console.log(`[dry-run] would comment on and close issue #${issue.number}: ${body}`);
-      return;
-    }
     gh(['issue', 'close', String(issue.number), '--comment', body], repoDir);
     console.log(`Idle notice: closed issue #${issue.number}.`);
   } catch (err) {
