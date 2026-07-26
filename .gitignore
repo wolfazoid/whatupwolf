@@ -22,3 +22,4 @@ engine/.run.lock
 
 # agent worktrees (git worktree add ... .claude/worktrees/<name>)
 .claude/
+.superpowers/
