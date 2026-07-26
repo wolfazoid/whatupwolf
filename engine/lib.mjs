@@ -352,3 +352,27 @@ export function parseIdeas(ideasMd) {
   }
   return out;
 }
+
+// The fixed title of the standing "engine is idle" issue. It is the lookup key —
+// the notifier finds the issue by exact title match rather than by label, so no
+// label has to be created first. Keep it byte-identical everywhere (em-dash, U+2014).
+export const IDLE_ISSUE_TITLE = 'Engine idle — backlog empty';
+
+// An invisible marker stamped into every idle notice, keyed to the SWEEP date
+// rather than the calendar date. The sweep writes IDEAS.md on a branch that
+// auto-merges, so at the moment it finishes main still holds the previous day's
+// ideas; a calendar-date rule would fire on that tick, report yesterday's list, and
+// stay one day behind forever. Keying to the sweep date means the notice fires on
+// the first tick where main actually carries new ideas. `none` covers a repo whose
+// inbox has no dated sections yet, so that case posts exactly once too.
+export function idleMarker(sweepDate) {
+  return `<!-- engine-idle: sweep=${sweepDate || 'none'} -->`;
+}
+
+// Has this sweep already been posted? `texts` is the issue body plus every comment
+// body. Whole-marker matching (including the trailing ` -->`) is what stops
+// '2026-07-2' from matching '2026-07-25'.
+export function sweepReported(texts, sweepDate) {
+  const marker = idleMarker(sweepDate);
+  return (texts || []).some((t) => String(t).includes(marker));
+}

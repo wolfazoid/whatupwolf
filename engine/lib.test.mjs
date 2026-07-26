@@ -6,7 +6,7 @@ import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.m
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { branchForItem, pickBuildableItem, prListArgs } from './lib.mjs';
 import { lockIsFree } from './lib.mjs';
-import { latestIdeaDate, ideasBranch, parseIdeas } from './lib.mjs';
+import { latestIdeaDate, ideasBranch, parseIdeas, idleMarker, sweepReported, IDLE_ISSUE_TITLE } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -592,5 +592,46 @@ describe('parseIdeas', () => {
 
   it('handles empty input', () => {
     expect(parseIdeas('')).toEqual([]);
+  });
+});
+
+describe('idleMarker / sweepReported', () => {
+  it('renders a marker for a sweep date', () => {
+    expect(idleMarker('2026-07-25')).toBe('<!-- engine-idle: sweep=2026-07-25 -->');
+  });
+
+  it('renders a "none" marker when no sweep has run yet', () => {
+    expect(idleMarker(null)).toBe('<!-- engine-idle: sweep=none -->');
+  });
+
+  it('is false when nothing carries the marker', () => {
+    expect(sweepReported(['a body', 'a comment'], '2026-07-25')).toBe(false);
+  });
+
+  it('is true when the issue body carries the marker', () => {
+    const body = '<!-- engine-idle: sweep=2026-07-25 -->\nEngine is idle.';
+    expect(sweepReported([body], '2026-07-25')).toBe(true);
+  });
+
+  it('is true when a later comment carries the marker', () => {
+    const texts = ['<!-- engine-idle: sweep=2026-07-24 -->', '<!-- engine-idle: sweep=2026-07-25 -->'];
+    expect(sweepReported(texts, '2026-07-25')).toBe(true);
+  });
+
+  it('does not match a different sweep date', () => {
+    expect(sweepReported(['<!-- engine-idle: sweep=2026-07-24 -->'], '2026-07-25')).toBe(false);
+  });
+
+  it('does not match a date that merely shares a prefix', () => {
+    expect(sweepReported(['<!-- engine-idle: sweep=2026-07-2 -->'], '2026-07-25')).toBe(false);
+  });
+
+  it('treats the no-sweep-yet case like any other marker', () => {
+    expect(sweepReported(['<!-- engine-idle: sweep=none -->'], null)).toBe(true);
+    expect(sweepReported([], null)).toBe(false);
+  });
+
+  it('tolerates a missing texts argument', () => {
+    expect(sweepReported(undefined, '2026-07-25')).toBe(false);
   });
 });
