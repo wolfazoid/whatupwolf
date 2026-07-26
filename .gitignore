@@ -19,3 +19,6 @@ engine/cycle.log
 engine/experiment.log
 engine/PAUSED
 engine/.run.lock
+
+# agent worktrees (git worktree add ... .claude/worktrees/<name>)
+.claude/
