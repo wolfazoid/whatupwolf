@@ -626,6 +626,14 @@ describe('idleMarker / sweepReported', () => {
     expect(sweepReported(['<!-- engine-idle: sweep=2026-07-2 -->'], '2026-07-25')).toBe(false);
   });
 
+  it('does not match when the checked date is a prefix of a reported one', () => {
+    expect(sweepReported(['<!-- engine-idle: sweep=2026-07-25 -->'], '2026-07-2')).toBe(false);
+  });
+
+  it('uses an em-dash in the issue title, not a hyphen', () => {
+    expect(IDLE_ISSUE_TITLE).toBe(`Engine idle ${String.fromCharCode(0x2014)} backlog empty`);
+  });
+
   it('treats the no-sweep-yet case like any other marker', () => {
     expect(sweepReported(['<!-- engine-idle: sweep=none -->'], null)).toBe(true);
     expect(sweepReported([], null)).toBe(false);
