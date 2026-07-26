@@ -6,7 +6,7 @@ import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.m
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { branchForItem, pickBuildableItem, prListArgs } from './lib.mjs';
 import { lockIsFree } from './lib.mjs';
-import { latestIdeaDate, ideasBranch } from './lib.mjs';
+import { latestIdeaDate, ideasBranch, parseIdeas } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -530,5 +530,67 @@ describe('latestIdeaDate', () => {
 describe('ideasBranch', () => {
   it('builds the dated idea-sweep branch', () => {
     expect(ideasBranch('2026-07-21')).toBe('lab/ideas-2026-07-21');
+  });
+});
+
+describe('parseIdeas', () => {
+  const HEADER = [
+    '# Idea Inbox',
+    '',
+    '**Triage (Wolf, by hand):**',
+    '- **Queue it** → copy the bullet into `engine/BACKLOG.md` as a `- [ ]` task.',
+    '- **Reject it** → move the bullet to `engine/IDEAS-rejected.md`.',
+    '',
+  ].join('\n');
+
+  it('ignores bullets before the first dated section', () => {
+    expect(parseIdeas(HEADER)).toEqual([]);
+  });
+
+  it('collects bullets under a dated section, tagged with date and group', () => {
+    const md = `${HEADER}## 2026-07-25\n\n### Ideas (dreamed up)\n- **Cycle cost ledger** — price each run.\n`;
+    expect(parseIdeas(md)).toEqual([
+      { date: '2026-07-25', group: 'Ideas', text: '**Cycle cost ledger** — price each run.' },
+    ]);
+  });
+
+  it('strips the parenthetical gloss from a group heading', () => {
+    const md = '## 2026-07-25\n### Opportunities (grounded in a repo read)\n- There is no 404 page.';
+    expect(parseIdeas(md)[0].group).toBe('Opportunities');
+  });
+
+  it('keeps bullets from every dated section and both groups', () => {
+    const md = [
+      '## 2026-07-24',
+      '### Ideas (dreamed up)',
+      '- alpha',
+      '### Opportunities (grounded in a repo read)',
+      '- beta',
+      '## 2026-07-25',
+      '### Ideas (dreamed up)',
+      '- gamma',
+    ].join('\n');
+    expect(parseIdeas(md).map((i) => `${i.date}/${i.group}/${i.text}`)).toEqual([
+      '2026-07-24/Ideas/alpha',
+      '2026-07-24/Opportunities/beta',
+      '2026-07-25/Ideas/gamma',
+    ]);
+  });
+
+  it('stops collecting when a non-date h2 opens a new section', () => {
+    const md = '## 2026-07-25\n### Ideas (dreamed up)\n- kept\n\n## Archive\n- dropped';
+    expect(parseIdeas(md)).toEqual([
+      { date: '2026-07-25', group: 'Ideas', text: 'kept' },
+    ]);
+  });
+
+  it('handles a bullet with no enclosing group heading', () => {
+    expect(parseIdeas('## 2026-07-25\n- loose')).toEqual([
+      { date: '2026-07-25', group: null, text: 'loose' },
+    ]);
+  });
+
+  it('handles empty input', () => {
+    expect(parseIdeas('')).toEqual([]);
   });
 });

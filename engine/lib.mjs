@@ -323,3 +323,32 @@ export function latestIdeaDate(ideasMd) {
 export function ideasBranch(date) {
   return `lab/ideas-${date}`;
 }
+
+// Every idea bullet in the inbox, tagged with the sweep that produced it and the
+// group heading it sits under. Bullets before the first `## YYYY-MM-DD` heading are
+// the file's own triage instructions, not ideas — that crib contains a literal
+// `- [ ]` inside backticks and would otherwise parse as an idea — so collection only
+// starts once a dated section is open, and a non-date h2 closes it again. The
+// parenthetical gloss on a group heading ("### Ideas (dreamed up)") is dropped.
+// Pure — the caller reads the file (or passes '' before it exists).
+export function parseIdeas(ideasMd) {
+  const out = [];
+  let date = null;
+  let group = null;
+  for (const line of String(ideasMd).split('\n')) {
+    const heading = line.match(/^(#{2,6})\s+(.*\S)\s*$/);
+    if (heading) {
+      if (heading[1].length === 2) {
+        const d = heading[2].match(/^(\d{4}-\d{2}-\d{2})$/);
+        date = d ? d[1] : null;
+        group = null;
+      } else if (heading[1].length === 3) {
+        group = heading[2].replace(/\s*\(.*\)\s*$/, '').trim() || null;
+      }
+      continue;
+    }
+    const bullet = line.match(/^-\s+(.*\S)\s*$/);
+    if (bullet && date) out.push({ date, group, text: bullet[1] });
+  }
+  return out;
+}
