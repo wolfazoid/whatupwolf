@@ -220,3 +220,25 @@ it only does work when the backlog has an unbuilt `- [ ]` item. Canonical cronta
 
 Halt the loop with `npm run pause` (or `touch engine/PAUSED`); resume with `npm run resume`.
 Remove the schedule entirely with `crontab -e` (delete the line).
+
+## Idle notifications
+
+When a tick finds nothing to build, the runner posts to a standing GitHub issue
+titled **"Engine idle — backlog empty"** (`engine/notify.mjs`). The issue names why
+the loop is idle — a genuinely empty backlog, or items parked behind an open PR —
+and lists the untriaged ideas in `engine/IDEAS.md`. The next tick that finds work
+closes it, so an open issue means idle and a closed one means working.
+
+Posting is keyed to the **sweep date**, not the calendar date. The idea sweep writes
+`IDEAS.md` on a branch that auto-merges, so at the moment it finishes `main` still
+holds the previous day's ideas; a calendar rule would report a day behind forever.
+The notice fires on the first tick where `main` actually carries the new sweep,
+usually the hour after.
+
+**One-time setup, required:** GitHub → Settings → Notifications → enable
+**"Include your own updates"**. The runner authenticates as `wolfazoid`, and GitHub
+does not email you about your own activity by default — without this toggle the
+issues are filed correctly and no email ever arrives.
+
+Notification is best effort: if `gh` fails, the runner logs a warning and the cycle
+continues. It never fails a build.

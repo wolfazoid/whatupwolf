@@ -6,9 +6,10 @@ import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickBuildableItem, prListArgs, markItemDone, slugify, renderLabEntry, parseCycleReport,
   resolveStatus, shortTitle, draftForType, lockIsFree, newLabEntriesInStatus,
-  latestIdeaDate, ideasBranch,
+  latestIdeaDate, ideasBranch, partitionBuildable, parseIdeas,
 } from './lib.mjs';
 import { publishBranch } from './publish.mjs';
+import { notifyIdle, notifyBuilding } from './notify.mjs';
 
 const ENGINE_DIR = dirname(fileURLToPath(import.meta.url));
 const REPO_DIR = join(ENGINE_DIR, '..');
@@ -125,14 +126,11 @@ function branchHasPr(branch) {
 // function only supplies the answers to "is this branch taken?", one lookup at a
 // time so a long backlog doesn't fan out a gh call per item.
 function pickNextBuildable(items) {
-  const taken = [];
-  for (;;) {
-    const next = pickBuildableItem(items, taken);
-    if (!next) return null;
-    if (!branchHasPr(next.branch)) return next;
-    console.log(`Skipping "${shortTitle(next.item.title)}" — ${next.branch} has already been built into a PR.`);
-    taken.push(next.branch);
+  const result = partitionBuildable(items, branchHasPr);
+  for (const s of result.skipped) {
+    console.log(`Skipping "${s.title}" — ${s.branch} has already been built into a PR.`);
   }
+  return result;
 }
 
 function buildPrompt(task) {
@@ -264,16 +262,32 @@ function runCycleLocked() {
   // 2. Pick the task, skipping anything already in flight.
   const backlogMd = readFileSync(BACKLOG, 'utf8');
   const items = parseBacklog(backlogMd);
-  const picked = pickNextBuildable(items);
+  const { next: picked, skipped } = pickNextBuildable(items);
   if (!picked) {
     console.log('Nothing buildable — the backlog is empty or every unchecked item has already been built into a PR.');
     runIdleIdeation();
+    // IDEAS.md is re-read here rather than reusing anything runIdleIdeation holds:
+    // the sweep publishes on a branch that auto-merges later, so the copy on main is
+    // the one the notice should describe. That is what the sweep-date marker is
+    // designed around — see the sweep-date note in engine/README.md.
+    const ideasMd = existsSync(IDEAS) ? readFileSync(IDEAS, 'utf8') : '';
+    notifyIdle({
+      repoDir: REPO_DIR,
+      sweepDate: latestIdeaDate(ideasMd),
+      ideas: parseIdeas(ideasMd),
+      skipped,
+      dry: DRY,
+    });
     return;
   }
   const { item, branch } = picked;
   const short = shortTitle(item.title);
   const slug = slugify(short);
   console.log(`Task:   ${item.title}\nTitle:  ${short}\nBranch: ${branch}`);
+
+  // Work resumed — close the standing idle issue, so an open issue always means
+  // idle and a closed one means working. Best effort: never fails the cycle.
+  notifyBuilding({ repoDir: REPO_DIR, nowBuilding: short, dry: DRY });
 
   // 3. Fresh branch. `-B` creates lab/<slug> when it's new and hard-resets it to
   //    the current HEAD (main) if an earlier run left it behind, so re-running the

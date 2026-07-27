@@ -323,3 +323,107 @@ export function latestIdeaDate(ideasMd) {
 export function ideasBranch(date) {
   return `lab/ideas-${date}`;
 }
+
+// Every idea bullet in the inbox, tagged with the sweep that produced it and the
+// group heading it sits under. Bullets before the first `## YYYY-MM-DD` heading are
+// the file's own triage instructions, not ideas — that crib contains a literal
+// `- [ ]` inside backticks and would otherwise parse as an idea — so collection only
+// starts once a dated section is open, and a non-date h2 closes it again. The
+// parenthetical gloss on a group heading ("### Ideas (dreamed up)") is dropped.
+// Pure — the caller reads the file (or passes '' before it exists).
+export function parseIdeas(ideasMd) {
+  const out = [];
+  let date = null;
+  let group = null;
+  for (const line of String(ideasMd).split('\n')) {
+    const heading = line.match(/^(#{2,6})\s+(.*\S)\s*$/);
+    if (heading) {
+      if (heading[1].length === 2) {
+        const d = heading[2].match(/^(\d{4}-\d{2}-\d{2})$/);
+        date = d ? d[1] : null;
+        group = null;
+      } else if (heading[1].length === 3) {
+        group = heading[2].replace(/\s*\(.*\)\s*$/, '').trim() || null;
+      }
+      continue;
+    }
+    const bullet = line.match(/^-\s+(.*\S)\s*$/);
+    if (bullet && date) out.push({ date, group, text: bullet[1] });
+  }
+  return out;
+}
+
+// The fixed title of the standing "engine is idle" issue. It is the lookup key —
+// the notifier finds the issue by exact title match rather than by label, so no
+// label has to be created first. Keep it byte-identical everywhere (em-dash, U+2014).
+export const IDLE_ISSUE_TITLE = 'Engine idle — backlog empty';
+
+// An invisible marker stamped into every idle notice, keyed to the SWEEP date
+// rather than the calendar date. The sweep writes IDEAS.md on a branch that
+// auto-merges, so at the moment it finishes main still holds the previous day's
+// ideas; a calendar-date rule would fire on that tick, report yesterday's list, and
+// stay one day behind forever. Keying to the sweep date means the notice fires on
+// the first tick where main actually carries new ideas. `none` covers a repo whose
+// inbox has no dated sections yet, so that case posts exactly once too.
+export function idleMarker(sweepDate) {
+  return `<!-- engine-idle: sweep=${sweepDate || 'none'} -->`;
+}
+
+// Has this sweep already been posted? `texts` is the issue body plus every comment
+// body. Whole-marker matching (including the trailing ` -->`) is what stops
+// '2026-07-2' from matching '2026-07-25'.
+export function sweepReported(texts, sweepDate) {
+  const marker = idleMarker(sweepDate);
+  return (texts || []).some((t) => String(t).includes(marker));
+}
+
+export const REPO_URL = 'https://github.com/wolfazoid/whatupwolf';
+
+// The body of an idle notice — used verbatim for both the initial issue and every
+// later comment, so a reader who only sees one comment still gets full context.
+// "Nothing buildable" conflates two different situations — a genuinely empty backlog
+// and one whose remaining items are all parked behind an open PR. The notice
+// distinguishes them, because the fix differs (queue work vs. merge a PR).
+export function renderIdleNotice({ sweepDate, ideas = [], skipped = [], repoUrl = REPO_URL }) {
+  const L = [idleMarker(sweepDate), ''];
+
+  if (skipped.length) {
+    L.push(`The loop found nothing buildable, but the backlog is **not** empty — ${skipped.length} unchecked item(s) are parked behind an existing PR:`, '');
+    for (const s of skipped) L.push(`- ${s.title} — \`${s.branch}\``);
+  } else {
+    L.push('The loop found nothing buildable — the backlog has **no unchecked items**.');
+  }
+  L.push('');
+  L.push(`Last idea sweep: **${sweepDate || 'none yet'}** · untriaged ideas in \`engine/IDEAS.md\`: **${ideas.length}**`);
+  L.push('');
+
+  const dates = [...new Set(ideas.map((i) => i.date))].sort().reverse();
+  for (const d of dates) {
+    L.push(`### ${d}`, '');
+    for (const idea of ideas.filter((i) => i.date === d)) {
+      L.push(`- ${idea.group ? `_${idea.group}_ — ` : ''}${idea.text}`);
+    }
+    L.push('');
+  }
+
+  L.push('**Triage:** queue → copy the bullet into `engine/BACKLOG.md` as `- [ ]` and delete it from the inbox · reject → move it to `engine/IDEAS-rejected.md` · ignore → leave it.');
+  L.push('');
+  L.push(`[IDEAS.md](${repoUrl}/blob/main/engine/IDEAS.md) · [BACKLOG.md](${repoUrl}/blob/main/engine/BACKLOG.md)`);
+  return L.join('\n');
+}
+
+// Walk the backlog for the first item the loop can actually build, keeping the ones
+// passed over. `hasPr` is injected so the decision stays pure and testable; the
+// runner supplies the gh-backed lookup. Returning the skipped list is what lets the
+// idle notice say "blocked behind lab/foo" instead of the misleading "backlog empty".
+export function partitionBuildable(items, hasPr) {
+  const taken = [];
+  const skipped = [];
+  for (;;) {
+    const next = pickBuildableItem(items, taken);
+    if (!next) return { next: null, skipped };
+    if (!hasPr(next.branch)) return { next, skipped };
+    skipped.push({ title: shortTitle(next.item.title), branch: next.branch });
+    taken.push(next.branch);
+  }
+}

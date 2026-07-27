@@ -4,9 +4,9 @@ import { slugify, renderLabEntry, parseCycleReport, parsePrivateReport, resolveS
 import { newLabEntriesInStatus } from './lib.mjs';
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
-import { branchForItem, pickBuildableItem, prListArgs } from './lib.mjs';
+import { branchForItem, pickBuildableItem, prListArgs, partitionBuildable } from './lib.mjs';
 import { lockIsFree } from './lib.mjs';
-import { latestIdeaDate, ideasBranch } from './lib.mjs';
+import { latestIdeaDate, ideasBranch, parseIdeas, idleMarker, sweepReported, IDLE_ISSUE_TITLE, renderIdleNotice } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -530,5 +530,209 @@ describe('latestIdeaDate', () => {
 describe('ideasBranch', () => {
   it('builds the dated idea-sweep branch', () => {
     expect(ideasBranch('2026-07-21')).toBe('lab/ideas-2026-07-21');
+  });
+});
+
+describe('parseIdeas', () => {
+  const HEADER = [
+    '# Idea Inbox',
+    '',
+    '**Triage (Wolf, by hand):**',
+    '- **Queue it** → copy the bullet into `engine/BACKLOG.md` as a `- [ ]` task.',
+    '- **Reject it** → move the bullet to `engine/IDEAS-rejected.md`.',
+    '',
+  ].join('\n');
+
+  it('ignores bullets before the first dated section', () => {
+    expect(parseIdeas(HEADER)).toEqual([]);
+  });
+
+  it('collects bullets under a dated section, tagged with date and group', () => {
+    const md = `${HEADER}## 2026-07-25\n\n### Ideas (dreamed up)\n- **Cycle cost ledger** — price each run.\n`;
+    expect(parseIdeas(md)).toEqual([
+      { date: '2026-07-25', group: 'Ideas', text: '**Cycle cost ledger** — price each run.' },
+    ]);
+  });
+
+  it('strips the parenthetical gloss from a group heading', () => {
+    const md = '## 2026-07-25\n### Opportunities (grounded in a repo read)\n- There is no 404 page.';
+    expect(parseIdeas(md)[0].group).toBe('Opportunities');
+  });
+
+  it('keeps bullets from every dated section and both groups', () => {
+    const md = [
+      '## 2026-07-24',
+      '### Ideas (dreamed up)',
+      '- alpha',
+      '### Opportunities (grounded in a repo read)',
+      '- beta',
+      '## 2026-07-25',
+      '### Ideas (dreamed up)',
+      '- gamma',
+    ].join('\n');
+    expect(parseIdeas(md).map((i) => `${i.date}/${i.group}/${i.text}`)).toEqual([
+      '2026-07-24/Ideas/alpha',
+      '2026-07-24/Opportunities/beta',
+      '2026-07-25/Ideas/gamma',
+    ]);
+  });
+
+  it('stops collecting when a non-date h2 opens a new section', () => {
+    const md = '## 2026-07-25\n### Ideas (dreamed up)\n- kept\n\n## Archive\n- dropped';
+    expect(parseIdeas(md)).toEqual([
+      { date: '2026-07-25', group: 'Ideas', text: 'kept' },
+    ]);
+  });
+
+  it('handles a bullet with no enclosing group heading', () => {
+    expect(parseIdeas('## 2026-07-25\n- loose')).toEqual([
+      { date: '2026-07-25', group: null, text: 'loose' },
+    ]);
+  });
+
+  it('handles empty input', () => {
+    expect(parseIdeas('')).toEqual([]);
+  });
+});
+
+describe('idleMarker / sweepReported', () => {
+  it('renders a marker for a sweep date', () => {
+    expect(idleMarker('2026-07-25')).toBe('<!-- engine-idle: sweep=2026-07-25 -->');
+  });
+
+  it('renders a "none" marker when no sweep has run yet', () => {
+    expect(idleMarker(null)).toBe('<!-- engine-idle: sweep=none -->');
+  });
+
+  it('is false when nothing carries the marker', () => {
+    expect(sweepReported(['a body', 'a comment'], '2026-07-25')).toBe(false);
+  });
+
+  it('is true when the issue body carries the marker', () => {
+    const body = '<!-- engine-idle: sweep=2026-07-25 -->\nEngine is idle.';
+    expect(sweepReported([body], '2026-07-25')).toBe(true);
+  });
+
+  it('is true when a later comment carries the marker', () => {
+    const texts = ['<!-- engine-idle: sweep=2026-07-24 -->', '<!-- engine-idle: sweep=2026-07-25 -->'];
+    expect(sweepReported(texts, '2026-07-25')).toBe(true);
+  });
+
+  it('does not match a different sweep date', () => {
+    expect(sweepReported(['<!-- engine-idle: sweep=2026-07-24 -->'], '2026-07-25')).toBe(false);
+  });
+
+  it('does not match a date that merely shares a prefix', () => {
+    expect(sweepReported(['<!-- engine-idle: sweep=2026-07-2 -->'], '2026-07-25')).toBe(false);
+  });
+
+  it('does not match when the checked date is a prefix of a reported one', () => {
+    expect(sweepReported(['<!-- engine-idle: sweep=2026-07-25 -->'], '2026-07-2')).toBe(false);
+  });
+
+  it('uses an em-dash in the issue title, not a hyphen', () => {
+    expect(IDLE_ISSUE_TITLE).toBe(`Engine idle ${String.fromCharCode(0x2014)} backlog empty`);
+  });
+
+  it('treats the no-sweep-yet case like any other marker', () => {
+    expect(sweepReported(['<!-- engine-idle: sweep=none -->'], null)).toBe(true);
+    expect(sweepReported([], null)).toBe(false);
+  });
+
+  it('tolerates a missing texts argument', () => {
+    expect(sweepReported(undefined, '2026-07-25')).toBe(false);
+  });
+});
+
+describe('renderIdleNotice', () => {
+  const ideas = [
+    { date: '2026-07-24', group: 'Ideas', text: 'alpha' },
+    { date: '2026-07-25', group: 'Ideas', text: 'beta' },
+    { date: '2026-07-25', group: 'Opportunities', text: 'gamma' },
+  ];
+
+  it('leads with the marker so the post is self-identifying', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: [] });
+    expect(out.split('\n')[0]).toBe('<!-- engine-idle: sweep=2026-07-25 -->');
+  });
+
+  it('says the backlog is empty when nothing was skipped', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: [] });
+    expect(out).toContain('no unchecked items');
+    expect(out).not.toContain('parked behind');
+  });
+
+  it('names each skipped item and its branch when the backlog is blocked', () => {
+    const out = renderIdleNotice({
+      sweepDate: '2026-07-25',
+      ideas: [],
+      skipped: [{ title: 'Give writing posts their own pages', branch: 'lab/give-writing-posts' }],
+    });
+    expect(out).toContain('not** empty');
+    expect(out).toContain('Give writing posts their own pages');
+    expect(out).toContain('lab/give-writing-posts');
+  });
+
+  it('reports the sweep date and the untriaged count', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas });
+    expect(out).toContain('Last idea sweep: **2026-07-25**');
+    expect(out).toContain('**3**');
+  });
+
+  it('groups ideas by sweep date, newest first', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas });
+    expect(out.indexOf('### 2026-07-25')).toBeLessThan(out.indexOf('### 2026-07-24'));
+    expect(out).toContain('- _Ideas_ — beta');
+    expect(out).toContain('- _Opportunities_ — gamma');
+  });
+
+  it('omits the idea list entirely when there is nothing untriaged', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: [] });
+    expect(out).not.toContain('###');
+    expect(out).toContain('**0**');
+  });
+
+  it('says "none yet" when no sweep has ever run', () => {
+    expect(renderIdleNotice({ sweepDate: null, ideas: [] })).toContain('none yet');
+  });
+
+  it('always carries the triage crib and both file links', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: [] });
+    expect(out).toContain('engine/IDEAS-rejected.md');
+    expect(out).toContain('/blob/main/engine/IDEAS.md');
+    expect(out).toContain('/blob/main/engine/BACKLOG.md');
+  });
+});
+
+describe('partitionBuildable', () => {
+  const items = [
+    { title: 'Alpha task', done: true },
+    { title: 'Beta task', done: false },
+    { title: 'Gamma task', done: false },
+  ];
+
+  it('returns the first unchecked item and no skips when nothing has a PR', () => {
+    const { next, skipped } = partitionBuildable(items, () => false);
+    expect(next.item.title).toBe('Beta task');
+    expect(skipped).toEqual([]);
+  });
+
+  it('skips items whose branch already has a PR and records them', () => {
+    const betaBranch = branchForItem('Beta task');
+    const { next, skipped } = partitionBuildable(items, (b) => b === betaBranch);
+    expect(next.item.title).toBe('Gamma task');
+    expect(skipped).toEqual([{ title: shortTitle('Beta task'), branch: betaBranch }]);
+  });
+
+  it('returns next=null and every skipped item when all are blocked', () => {
+    const { next, skipped } = partitionBuildable(items, () => true);
+    expect(next).toBeNull();
+    expect(skipped.map((s) => s.title)).toEqual([shortTitle('Beta task'), shortTitle('Gamma task')]);
+  });
+
+  it('returns next=null and no skips when the backlog is genuinely empty', () => {
+    const { next, skipped } = partitionBuildable([{ title: 'Done', done: true }], () => false);
+    expect(next).toBeNull();
+    expect(skipped).toEqual([]);
   });
 });
