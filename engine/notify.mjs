@@ -50,17 +50,21 @@ function lookupOrNull(repoDir, dry) {
 export function notifyIdle({ repoDir, sweepDate, ideas = [], skipped = [], dry = false }) {
   const { ok, issue } = lookupOrNull(repoDir, dry);
   if (!ok) return;
-  if (issue && sweepReported(issue.texts, sweepDate)) {
-    console.log(`Idle notice: sweep ${sweepDate || 'none'} already reported on issue #${issue.number}.`);
-    return;
-  }
-  const body = renderIdleNotice({ sweepDate, ideas, skipped });
-  if (dry) {
-    console.log(`[dry-run] would ${issue ? `comment on issue #${issue.number}` : `open issue "${IDLE_ISSUE_TITLE}"`}:`);
-    console.log(body);
-    return;
-  }
+  // Everything past this point — the idempotence check, the render, and the
+  // write — is wrapped as one unit. `renderIdleNotice` is shared and has no
+  // obligation to validate its inputs; the obligation to never throw belongs
+  // to this module, for any caller, not just the one we happen to control.
   try {
+    if (issue && sweepReported(issue.texts, sweepDate)) {
+      console.log(`Idle notice: sweep ${sweepDate || 'none'} already reported on issue #${issue.number}.`);
+      return;
+    }
+    const body = renderIdleNotice({ sweepDate, ideas, skipped });
+    if (dry) {
+      console.log(`[dry-run] would ${issue ? `comment on issue #${issue.number}` : `open issue "${IDLE_ISSUE_TITLE}"`}:`);
+      console.log(body);
+      return;
+    }
     if (issue) {
       gh(['issue', 'comment', String(issue.number), '--body', body], repoDir);
       console.log(`Idle notice: commented on issue #${issue.number}.`);
@@ -79,16 +83,18 @@ export function notifyIdle({ repoDir, sweepDate, ideas = [], skipped = [], dry =
 export function notifyBuilding({ repoDir, nowBuilding, dry = false }) {
   const { ok, issue } = lookupOrNull(repoDir, dry);
   if (!ok) return;
-  if (!issue) {
-    if (dry) console.log('[dry-run] no open idle issue to close.');
-    return;
-  }
-  const body = `Back to work — building: ${nowBuilding}`;
-  if (dry) {
-    console.log(`[dry-run] would comment on and close issue #${issue.number}: ${body}`);
-    return;
-  }
+  // Same reasoning as notifyIdle: everything past the lookup is one unit, so
+  // this entry point can't throw regardless of what a future caller passes in.
   try {
+    if (!issue) {
+      if (dry) console.log('[dry-run] no open idle issue to close.');
+      return;
+    }
+    const body = `Back to work — building: ${nowBuilding}`;
+    if (dry) {
+      console.log(`[dry-run] would comment on and close issue #${issue.number}: ${body}`);
+      return;
+    }
     gh(['issue', 'close', String(issue.number), '--comment', body], repoDir);
     console.log(`Idle notice: closed issue #${issue.number}.`);
   } catch (err) {
