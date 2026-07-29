@@ -5,7 +5,7 @@ import { newLabEntriesInStatus } from './lib.mjs';
 import { parseActiveGhAccount, shortTitle, publicEntryFromReport } from './lib.mjs';
 import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { branchForItem, pickBuildableItem, prListArgs, partitionBuildable } from './lib.mjs';
-import { lockIsFree } from './lib.mjs';
+import { lockIsFree, runLocked } from './lib.mjs';
 import { latestIdeaDate, ideasBranch, parseIdeas, idleMarker, sweepReported, IDLE_ISSUE_TITLE, renderIdleNotice } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
@@ -330,6 +330,67 @@ describe('lockIsFree', () => {
     expect(lockIsFree('not-a-pid', alive)).toBe(true);
     expect(lockIsFree('0', alive)).toBe(true);
     expect(lockIsFree('-7', alive)).toBe(true);
+  });
+});
+
+describe('runLocked', () => {
+  // A fake lock + git pair that records the order things happened in. Recovery is
+  // `git checkout -f main` + `git clean -fd`; if it runs after release(), another
+  // tick can take the freed lock and have its untracked files cleaned out from
+  // under it. So the assertion under test is an ORDER, not a set of calls.
+  function harness({ acquired = true, run, recover } = {}) {
+    const calls = [];
+    return {
+      calls,
+      acquire: () => {
+        calls.push('acquire');
+        return acquired ? () => calls.push('release') : null;
+      },
+      run: run || (() => { calls.push('run'); }),
+      recover: recover || (() => { calls.push('recover'); }),
+      onBusy: () => calls.push('busy'),
+      onFail: (err) => calls.push(`fail:${err.message}`),
+    };
+  }
+
+  it('recovers BEFORE releasing the lock when the run throws', async () => {
+    const h = harness({ run: () => { throw new Error('boom'); } });
+    const outcome = await runLocked(h);
+    expect(h.calls).toEqual(['acquire', 'fail:boom', 'recover', 'release']);
+    expect(h.calls.indexOf('recover')).toBeLessThan(h.calls.indexOf('release'));
+    expect(outcome.status).toBe('failed');
+    expect(outcome.error.message).toBe('boom');
+  });
+
+  it('holds the lock across an async failure too', async () => {
+    const h = harness({ run: async () => { await Promise.resolve(); throw new Error('late'); } });
+    const outcome = await runLocked(h);
+    expect(h.calls).toEqual(['acquire', 'fail:late', 'recover', 'release']);
+    expect(outcome.status).toBe('failed');
+  });
+
+  it('releases without recovering on a clean run', async () => {
+    const h = harness();
+    const outcome = await runLocked(h);
+    expect(h.calls).toEqual(['acquire', 'run', 'release']);
+    expect(outcome).toEqual({ status: 'ok' });
+  });
+
+  it('does nothing but log when another run holds the lock', async () => {
+    const h = harness({ acquired: false, run: () => { throw new Error('must not run'); } });
+    const outcome = await runLocked(h);
+    expect(h.calls).toEqual(['acquire', 'busy']);
+    expect(outcome).toEqual({ status: 'busy' });
+  });
+
+  it('still releases the lock if recovery itself blows up', async () => {
+    // recoverToMain swallows git errors, but the lock must not leak even if it stops.
+    const h = harness({
+      run: () => { throw new Error('boom'); },
+      recover: () => { throw new Error('git is wedged'); },
+    });
+    await expect(runLocked(h)).rejects.toThrow('git is wedged');
+    expect(h.calls).toEqual(['acquire', 'fail:boom', 'release']);
   });
 });
 

@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickBuildableItem, prListArgs, markItemDone, slugify, renderLabEntry, parseCycleReport,
-  resolveStatus, shortTitle, draftForType, lockIsFree, newLabEntriesInStatus,
+  resolveStatus, shortTitle, draftForType, lockIsFree, runLocked, newLabEntriesInStatus,
   latestIdeaDate, ideasBranch, partitionBuildable, parseIdeas,
 } from './lib.mjs';
 import { publishBranch } from './publish.mjs';
@@ -223,28 +223,35 @@ function runIdleIdeation() {
   console.log('Idle ideation complete — PR opened for review.');
 }
 
-function main() {
+// Logs a failed cycle in the loop's usual wording. Paired with recoverToMain by
+// runLocked (which calls this first, then recovers) and reused by the top-level
+// catch for the few failures that happen before the lock is ever taken.
+function reportFailure(err) {
+  console.error(`Cycle failed: ${err.message}. Returning the working tree to a clean main so the loop can re-run.`);
+}
+
+async function main() {
   // 0. Kill switch (local, instant) — checked before any git/network work, so a
   // `touch engine/PAUSED` (or `npm run pause`) stops the loop even if git is hung.
   if (!DRY && existsSync(PAUSED)) {
     console.log('Paused: engine/PAUSED is present — exiting immediately. `npm run resume` to resume.');
-    return;
+    return 0;
   }
 
   // 0b. Single-instance lock — acquired after the kill switch and before any
   // git/network work, so two overlapping runs can't corrupt each other's git
-  // state. A live holder makes us exit 0 without touching git; the finally
-  // releases on every exit path, including the outer catch/recover.
-  const release = acquireLock();
-  if (!release) {
-    console.log('another run in progress — exiting');
-    return;
-  }
-  try {
-    runCycleLocked();
-  } finally {
-    release();
-  }
+  // state. A live holder makes us exit 0 without touching git. On failure,
+  // runLocked recovers the working tree BEFORE releasing, so no other tick can
+  // take the lock while `git clean -fd` is still running; the exit code is
+  // returned rather than thrown, because process.exit() would skip the release.
+  const outcome = await runLocked({
+    acquire: acquireLock,
+    run: runCycleLocked,
+    recover: recoverToMain,
+    onBusy: () => console.log('another run in progress — exiting'),
+    onFail: reportFailure,
+  });
+  return outcome.status === 'failed' ? 1 : 0;
 }
 
 function runCycleLocked() {
@@ -396,10 +403,14 @@ function runCycleLocked() {
   console.log('Cycle complete — PR opened for review.');
 }
 
+// Failures inside the locked region are logged and recovered by runLocked and come
+// back as an exit code, so this catch is left with only the pre-lock failures (a
+// kill-switch stat, acquireLock itself) — where no lock is held and recovering
+// unlocked is safe.
 try {
-  main();
+  process.exitCode = await main();
 } catch (err) {
-  console.error(`Cycle failed: ${err.message}. Returning the working tree to a clean main so the loop can re-run.`);
+  reportFailure(err);
   recoverToMain();
   process.exit(1);
 }

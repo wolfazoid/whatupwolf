@@ -212,6 +212,41 @@ export function lockIsFree(lockContents, isAlive) {
   return !isAlive(pid);
 }
 
+// Runs the body of a run inside the single-instance lock, and — the whole point —
+// orders failure recovery BEFORE the lock is released. Recovery is `git checkout
+// -f main` followed by `git clean -fd`, and it fires at the one moment the working
+// tree is guaranteed half-finished. While it lived in the runner's top-level catch
+// it ran *after* the finally had freed the lock, so a second tick could take the
+// just-freed lock, start its own checkout, and have the still-running `git clean
+// -fd` delete its untracked files — precisely the corruption the lock was added to
+// prevent. Here the catch sits inside the locked region: recover() completes, then
+// the finally releases.
+//
+// Every collaborator is injected so the ordering is unit-testable without shelling
+// out to real git: `acquire()` returns a release() or null when another run holds
+// the lock, `run()` is the locked body (sync or async), `recover()` resets the
+// tree, and `onBusy()` / `onFail(err)` do the logging. Returns the outcome rather
+// than exiting, so the caller owns its exit code and the process only ends once
+// the lock has actually been released — process.exit() skips finally blocks.
+export async function runLocked({ acquire, run, recover, onBusy, onFail }) {
+  const release = acquire();
+  if (!release) {
+    onBusy();
+    return { status: 'busy' };
+  }
+  let error = null;
+  try {
+    await run();
+  } catch (err) {
+    error = err;
+    onFail(err);
+    recover();
+  } finally {
+    release();
+  }
+  return error ? { status: 'failed', error } : { status: 'ok' };
+}
+
 // Parses the output of `gh auth status` and returns the username of the account
 // marked active, or '' if none is found. gh 2.45 dropped the `--active` flag, so
 // instead of asking gh to filter, we scan the full status text: each account

@@ -29,6 +29,14 @@ drops the failed attempt's uncommitted scratch (`git checkout -f main` + `git cl
 respect `.gitignore`, so `PAUSED`, `cron.log`, `node_modules`, and `.env` are left untouched;
 the next run therefore always starts from a known-good `main`.
 
+That recovery happens **inside** the single-instance lock (`lib.mjs` → `runLocked`): the
+failure is caught within the locked region, the tree is reset, and only then is
+`engine/.run.lock` released. Recovering after the release would open a window where the
+next tick takes the freed lock and starts its own checkout while `git clean -fd` is still
+running — it would delete that run's untracked files, the exact corruption the lock exists
+to prevent. The runners therefore return an exit code from `main()` instead of calling
+`process.exit(1)` in the locked region, since `process.exit()` skips `finally` blocks.
+
 ## Idle ideation (empty-backlog digest)
 
 When an hourly `run-cycle` tick finds nothing buildable, instead of exiting it runs a

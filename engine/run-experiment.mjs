@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   renderLabEntry, parseCycleReport, parsePrivateReport, publicEntryFromReport,
-  draftForType, parseRemoteBranches, uniqueBranchName, lockIsFree,
+  draftForType, parseRemoteBranches, uniqueBranchName, lockIsFree, runLocked,
 } from './lib.mjs';
 import { sanitize } from '../src/lib/sanitize.core.mjs';
 import { publishBranch } from './publish.mjs';
@@ -151,6 +151,13 @@ function dryRunPrivateReport(title) {
   };
 }
 
+// Logs a failed experiment in the loop's usual wording. Paired with recoverToMain
+// by runLocked (which calls this first, then recovers) and reused by the top-level
+// catch for the failures that happen before the lock is ever taken.
+function reportFailure(err) {
+  console.error(`Experiment failed: ${err.message}. Returning the working tree to a clean main so the loop can re-run.`);
+}
+
 async function main() {
   // 0. Resolve the experiment before touching git/network, so an unknown name fails
   // fast and cheap.
@@ -170,23 +177,23 @@ async function main() {
   // `touch engine/PAUSED` (or `npm run pause`) stops the loop even if git is hung.
   if (!DRY && existsSync(PAUSED)) {
     console.log('Paused: engine/PAUSED is present — exiting immediately. `npm run resume` to resume.');
-    return;
+    return 0;
   }
 
   // 1b. Single-instance lock — acquired after the kill switch and before any
   // git/network work, so an overlapping cycle and experiment can't corrupt each
-  // other's git state. A live holder makes us exit 0 without touching git; the
-  // finally releases on every exit path, including the outer catch/recover.
-  const release = acquireLock();
-  if (!release) {
-    console.log('another run in progress — exiting');
-    return;
-  }
-  try {
-    await runExperimentLocked(cfg, promptPath);
-  } finally {
-    release();
-  }
+  // other's git state. A live holder makes us exit 0 without touching git. On
+  // failure, runLocked recovers the working tree BEFORE releasing, so no other
+  // tick can take the lock while `git clean -fd` is still running; the exit code
+  // is returned rather than thrown, because process.exit() would skip the release.
+  const outcome = await runLocked({
+    acquire: acquireLock,
+    run: () => runExperimentLocked(cfg, promptPath),
+    recover: recoverToMain,
+    onBusy: () => console.log('another run in progress — exiting'),
+    onFail: reportFailure,
+  });
+  return outcome.status === 'failed' ? 1 : 0;
 }
 
 async function runExperimentLocked(cfg, promptPath) {
@@ -327,10 +334,14 @@ async function runExperimentLocked(cfg, promptPath) {
   console.log('Experiment complete — PR opened.');
 }
 
+// Failures inside the locked region are logged and recovered by runLocked and come
+// back as an exit code, so this catch is left with only the pre-lock failures (the
+// experiment lookup, the kill-switch stat, acquireLock itself) — where no lock is
+// held and recovering unlocked is safe.
 try {
-  await main();
+  process.exitCode = await main();
 } catch (err) {
-  console.error(`Experiment failed: ${err.message}. Returning the working tree to a clean main so the loop can re-run.`);
+  reportFailure(err);
   recoverToMain();
   process.exit(1);
 }
