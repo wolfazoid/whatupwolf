@@ -131,8 +131,54 @@ const yamlFlowScalar = (s) => {
   return bareSafe ? str : yamlStr(str);
 };
 
-export function renderLabEntry({ title, date, type = 'experiment', status, tags = [], live = true, draft = false, summary, body }) {
-  const iso = date.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+// Every date the engine stamps used to come from `new Date().toISOString()` — i.e.
+// UTC. The box runs America/Chicago (UTC−5 in summer), so from 19:00 local onward
+// every cycle stamped TOMORROW: at 21:00 on 2026-07-28 the loop opened branch
+// `lab/ideas-2026-07-29` and PR #59 titled "idea sweep — 2026-07-29". That is more
+// than cosmetic — a future-dated entry sorts above genuinely newer ones in the Lab
+// feed, and latestIdeaDate() keys the once-a-day sweep guard off the shifted day, so
+// the guard rolls over five hours early. These helpers format an instant in a real
+// IANA zone instead, defaulting to whatever zone the box is in. Intl does the zone
+// arithmetic, so there is no dependency and no hand-rolled offset table to go stale
+// at a DST boundary.
+export function boxTimeZone() {
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+}
+
+// The numeric fields of `date` as seen in `timeZone`, as zero-padded strings. We go
+// through formatToParts rather than the formatted string so no locale separator ever
+// has to be parsed back out.
+function zonedParts(date, timeZone, opts) {
+  const out = {};
+  for (const p of new Intl.DateTimeFormat('en-CA', { timeZone, ...opts }).formatToParts(date)) {
+    if (p.type !== 'literal') out[p.type] = p.value;
+  }
+  // Some ICU builds render midnight as hour "24" under hour12:false. The day field is
+  // already the correct one for that instant, so only the hour needs normalising.
+  if (out.hour === '24') out.hour = '00';
+  return out;
+}
+
+// `YYYY-MM-DD` — the calendar day `date` falls on in `timeZone`.
+export function localDay(date, timeZone = boxTimeZone()) {
+  const p = zonedParts(date, timeZone, { year: 'numeric', month: '2-digit', day: '2-digit' });
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+// `YYYY-MM-DDTHH:mm` — that day plus the local wall-clock time, the exact shape the
+// Lab frontmatter already uses. Deliberately naive (no `-05:00` suffix): the site
+// reads the field back and renders it through toISOString(), so an offset-bearing
+// stamp would be converted straight back to UTC and land the entry on tomorrow again.
+export function localStamp(date, timeZone = boxTimeZone()) {
+  const p = zonedParts(date, timeZone, {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}`;
+}
+
+export function renderLabEntry({ title, date, timeZone, type = 'experiment', status, tags = [], live = true, draft = false, summary, body }) {
+  const iso = localStamp(date, timeZone); // YYYY-MM-DDTHH:mm, local to the box
   return [
     '---',
     `title: ${yamlStr(title)}`,
@@ -173,7 +219,7 @@ export function draftForType(type) {
 // plain `node` (run-cycle.mjs imports it directly): the sanitizer lives in
 // TypeScript (src/lib/sanitize.ts), which Node can't parse, so importing it here
 // at load time would break the runner. The caller (or a test) passes it in.
-export function publicEntryFromReport(report, { sanitize, date, status = 'done', type, live } = {}) {
+export function publicEntryFromReport(report, { sanitize, date, timeZone, status = 'done', type, live } = {}) {
   if (typeof sanitize !== 'function') {
     throw new TypeError('publicEntryFromReport: a `sanitize` function must be injected');
   }
@@ -184,6 +230,7 @@ export function publicEntryFromReport(report, { sanitize, date, status = 'done',
     body: snapshot.body ?? '',
     tags: snapshot.tags ?? [],
     date,
+    timeZone,
     status,
     ...(type !== undefined ? { type } : {}),
     ...(live !== undefined ? { live } : {}),

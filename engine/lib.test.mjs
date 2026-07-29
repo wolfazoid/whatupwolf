@@ -7,6 +7,7 @@ import { parseRemoteBranches, uniqueBranchName } from './lib.mjs';
 import { branchForItem, pickBuildableItem, prListArgs, partitionBuildable } from './lib.mjs';
 import { lockIsFree, runLocked } from './lib.mjs';
 import { latestIdeaDate, ideasBranch, parseIdeas, idleMarker, sweepReported, IDLE_ISSUE_TITLE, renderIdleNotice } from './lib.mjs';
+import { localDay, localStamp, boxTimeZone } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -75,10 +76,65 @@ describe('slugify', () => {
   });
 });
 
+// The box runs America/Chicago, so a UTC day rolls over at 19:00 local: every cycle
+// after that stamped tomorrow's date. Confirmed live — at 21:00 CDT on 2026-07-28 the
+// loop opened `lab/ideas-2026-07-29` and PR #59 "idea sweep — 2026-07-29". Both sides
+// of that boundary are pinned here against fixed instants.
+describe('localDay', () => {
+  const CHICAGO = 'America/Chicago';
+
+  it('returns the local day, not the UTC day, after the 19:00 CDT rollover', () => {
+    // 21:00 CDT on the 28th — UTC has already ticked over to the 29th.
+    expect(localDay(new Date('2026-07-29T02:00:00Z'), CHICAGO)).toBe('2026-07-28');
+  });
+  it('agrees with UTC before the rollover', () => {
+    expect(localDay(new Date('2026-07-28T18:00:00Z'), CHICAGO)).toBe('2026-07-28'); // 13:00 CDT
+  });
+  it('is exact at the boundary instants', () => {
+    // 23:59:59 local on the 28th is still the 28th; one second later is the 29th.
+    expect(localDay(new Date('2026-07-29T04:59:59Z'), CHICAGO)).toBe('2026-07-28');
+    expect(localDay(new Date('2026-07-29T05:00:00Z'), CHICAGO)).toBe('2026-07-29');
+  });
+  it('honours a standard-time (UTC−6) offset outside DST', () => {
+    // 18:30 CST on 2026-01-15; UTC is already on the 16th.
+    expect(localDay(new Date('2026-01-16T00:30:00Z'), CHICAGO)).toBe('2026-01-15');
+  });
+  it('handles zones east of UTC, where local runs ahead', () => {
+    expect(localDay(new Date('2026-07-28T23:00:00Z'), 'Asia/Tokyo')).toBe('2026-07-29');
+  });
+  it('is the UTC day when asked for UTC', () => {
+    expect(localDay(new Date('2026-07-29T02:00:00Z'), 'UTC')).toBe('2026-07-29');
+  });
+  it('zero-pads single-digit months and days', () => {
+    expect(localDay(new Date('2026-03-05T18:00:00Z'), CHICAGO)).toBe('2026-03-05');
+  });
+  it('defaults to the box zone', () => {
+    const d = new Date('2026-07-29T02:00:00Z');
+    expect(localDay(d)).toBe(localDay(d, boxTimeZone()));
+  });
+});
+
+describe('localStamp', () => {
+  it('keeps the frontmatter shape but in local wall-clock time', () => {
+    expect(localStamp(new Date('2026-07-29T02:00:00Z'), 'America/Chicago')).toBe('2026-07-28T21:00');
+  });
+  it('renders local midnight as 00:00 on the new day, never 24:00', () => {
+    const midnight = localStamp(new Date('2026-07-29T05:00:00Z'), 'America/Chicago');
+    expect(midnight).toBe('2026-07-29T00:00');
+  });
+  it('shares its day with localDay', () => {
+    const d = new Date('2026-07-29T02:00:00Z');
+    expect(localStamp(d, 'America/Chicago').slice(0, 10)).toBe(localDay(d, 'America/Chicago'));
+  });
+});
+
 describe('renderLabEntry', () => {
+  // timeZone is pinned so the assertions mean the same thing on the box (CDT) and in
+  // CI (UTC); the runner leaves it unset and gets the box's zone.
   const entry = renderLabEntry({
     title: 'Build the sanitization filter',
     date: new Date('2026-07-18T14:30:00Z'),
+    timeZone: 'UTC',
     status: 'done',
     tags: ['engine', 'sanitizer'],
     summary: 'The machine built the sanitizer.',
@@ -107,6 +163,22 @@ describe('renderLabEntry', () => {
   });
   it('includes the body after the frontmatter', () => {
     expect(entry.trim().endsWith('Implemented allowlist + fail-closed scan.')).toBe(true);
+  });
+
+  // The `date:` field is the Lab feed's sort key. Stamped in UTC it read as tomorrow
+  // for every entry written after 19:00 local, which sorted the entry above genuinely
+  // newer ones. It now carries local wall-clock time for the given zone.
+  it('stamps the date in the given zone, not UTC', () => {
+    const evening = renderLabEntry({
+      title: 'An entry written after 19:00 local',
+      date: new Date('2026-07-29T02:00:00Z'), // 21:00 CDT on the 28th
+      timeZone: 'America/Chicago',
+      status: 'done',
+      summary: 's',
+      body: 'b',
+    });
+    expect(evening).toContain('date: 2026-07-28T21:00');
+    expect(evening).not.toContain('2026-07-29');
   });
 
   it('YAML-escapes unsafe tag values while keeping safe tags bare', () => {
@@ -222,7 +294,7 @@ describe('publicEntryFromReport', () => {
   const date = new Date('2026-07-18T14:30:00Z');
 
   it('sanitizes then renders a public lab entry for a clean report', () => {
-    const entry = publicEntryFromReport(clean, { sanitize, date, status: 'done' });
+    const entry = publicEntryFromReport(clean, { sanitize, date, timeZone: 'UTC', status: 'done' });
     expect(entry).toContain('title: "Audit complete"');
     expect(entry).toContain('summary: "Improved LCP on a key template"');
     expect(entry).toContain('status: done');

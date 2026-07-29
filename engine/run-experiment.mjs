@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import {
   renderLabEntry, parseCycleReport, parsePrivateReport, publicEntryFromReport,
-  draftForType, parseRemoteBranches, uniqueBranchName, lockIsFree, runLocked,
+  draftForType, parseRemoteBranches, uniqueBranchName, lockIsFree, runLocked, localDay,
 } from './lib.mjs';
 import { sanitize } from '../src/lib/sanitize.core.mjs';
 import { publishBranch } from './publish.mjs';
@@ -222,7 +222,10 @@ async function runExperimentLocked(cfg, promptPath) {
   // content path either. In --dry-run nothing shells out, so this resolves to the
   // plain dated name.
   const date = new Date();
-  const day = date.toISOString().slice(0, 10);
+  // Local day, not UTC: this one string keys the branch name, the experiment title,
+  // the Lab entry filename and the private report archive path, so a UTC stamp put an
+  // evening run's whole paper trail on tomorrow's date. See localDay in lib.mjs.
+  const day = localDay(date);
   const base = `lab/${NAME}-${day}`;
   const branch = uniqueBranchName(base, parseRemoteBranches(sh('git', ['ls-remote', '--heads', 'origin', `${base}*`])));
   const suffix = branch.slice(base.length); // '' on a first run, '-2' on a same-day re-run
