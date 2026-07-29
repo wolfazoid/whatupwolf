@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import {
   parseBacklog, pickBuildableItem, prListArgs, markItemDone, slugify, renderLabEntry, parseCycleReport,
   resolveStatus, shortTitle, draftForType, lockIsFree, runLocked, newLabEntriesInStatus,
-  latestIdeaDate, ideasBranch, partitionBuildable, parseIdeas,
+  latestIdeaDate, ideasBranch, partitionBuildable, parseIdeas, localDay,
 } from './lib.mjs';
 import { publishBranch } from './publish.mjs';
 import { notifyIdle, notifyBuilding } from './notify.mjs';
@@ -162,7 +162,10 @@ function buildIdeatePrompt(today) {
 // today's lab/ideas-<date> branch already has a PR (the in-flight case, before the
 // PR merges). No Lab entry — this is an internal ops note, not a public post.
 function runIdleIdeation() {
-  const today = new Date().toISOString().slice(0, 10);
+  // The box's local day, not UTC — a UTC day rolls over at 19:00 here, which had the
+  // evening ticks sweeping under tomorrow's heading and rolling the once-a-day guard
+  // (latestIdeaDate, below) five hours early. See localDay in lib.mjs.
+  const today = localDay(new Date());
   const ideasMd = existsSync(IDEAS) ? readFileSync(IDEAS, 'utf8') : '';
   if (latestIdeaDate(ideasMd) === today) {
     console.log(`Idle: an idea sweep already ran today (${today}) — nothing to do.`);
@@ -369,7 +372,7 @@ function runCycleLocked() {
     summary: report.summary,
     body: report.body,
   });
-  const entryPath = join(REPO_DIR, 'src', 'content', 'lab', `${date.toISOString().slice(0, 10)}-${slug}.md`);
+  const entryPath = join(REPO_DIR, 'src', 'content', 'lab', `${localDay(date)}-${slug}.md`);
 
   if (DRY) {
     console.log(`[dry-run] would write ${entryPath}`);
