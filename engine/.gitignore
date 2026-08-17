@@ -6,3 +6,7 @@ reports/
 
 # The scratch report a headless run writes, read once and deleted.
 .experiment-report.json
+
+# Where the last cycle.log scan finished (engine/log-scan.mjs). A byte offset into
+# a machine-local log — meaningless on any other checkout.
+.log-scan.json

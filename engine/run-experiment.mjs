@@ -22,7 +22,9 @@ import { dirname, join } from 'node:path';
 import {
   renderLabEntry, parseCycleReport, parsePrivateReport, publicEntryFromReport,
   draftForType, parseRemoteBranches, uniqueBranchName, lockIsFree, runLocked, localDay,
+  renderSelfCheck,
 } from './lib.mjs';
+import { scanCycleLog } from './log-scan.mjs';
 import { sanitize } from '../src/lib/sanitize.core.mjs';
 import { publishBranch } from './publish.mjs';
 import { EXPERIMENTS } from './experiments/registry.mjs';
@@ -290,6 +292,24 @@ async function runExperimentLocked(cfg, promptPath) {
       } catch (err) {
         throw new Error(`could not parse the experiment report (${err.message})`);
       }
+    }
+
+    // 5d. Engine self-check. The engine's best-effort paths swallow their errors
+    // by design and log one line to engine/cycle.log, which is gitignored and
+    // never leaves the box — that is how a broken notifier stayed invisible for
+    // seven days from 2026-08-11. A digest is the recurring artefact that DOES
+    // leave the box, so a `selfCheck` experiment carries the count of swallowed
+    // failures since the previous digest, plus the most recent message.
+    //
+    // Appended by the runner rather than asked of the machine: the digest prompt
+    // researches the outside world and has no business reading the log, and a
+    // fact this exists to stop losing must not depend on a model remembering to
+    // include it. scanCycleLog never throws — a missing or truncated log renders
+    // as "no data" — so this can't be what fails a digest run. Under --dry-run
+    // the scan does not advance its offset, so a preview never consumes the
+    // window the next real run is supposed to report.
+    if (cfg.selfCheck) {
+      report.body = `${String(report.body).trim()}\n\n${renderSelfCheck(scanCycleLog({ commit: !DRY }))}`;
     }
 
     // 6d. Render the Lab entry. draftForType decides the gate from the entry

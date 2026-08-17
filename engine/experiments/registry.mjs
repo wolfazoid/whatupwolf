@@ -10,7 +10,11 @@
 // used to hardcode "week of", which reads wrong for anything that isn't weekly:
 // a one-shot sprint omits it and titles as "<prefix> — <date>".
 export const EXPERIMENTS = {
-  'agent-weekly': { kind: 'digest', type: 'digest', titlePrefix: 'Agent Weekly', cadence: 'week of' },
+  // `selfCheck` appends the engine self-check section to the digest body — the
+  // count of best-effort failures swallowed into the gitignored engine/cycle.log
+  // since the previous digest (see engine/log-scan.mjs). Agent Weekly carries it
+  // because it is the recurring artefact that reliably leaves the box.
+  'agent-weekly': { kind: 'digest', type: 'digest', titlePrefix: 'Agent Weekly', cadence: 'week of', selfCheck: true },
   'site-health': {
     kind: 'monitor',
     type: 'monitor',

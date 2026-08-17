@@ -258,3 +258,44 @@ issues are filed correctly and no email ever arrives.
 
 Notification is best effort: if `gh` fails, the runner logs a warning and the cycle
 continues. It never fails a build.
+
+## Engine self-check (swallowed-error telemetry)
+
+Best effort is the right design — GitHub being unreachable must never fail a cycle —
+but *silence* about a best-effort path that keeps failing is not. `engine/cycle.log`
+is gitignored and stays on the box, so a caught error that only prints a line there
+leaves no trace anywhere else. That is exactly what happened from **2026-08-11**: the
+idle notifier hit `ENOBUFS` reading an oversized issue thread, printed one line per
+hourly tick for seven days, and no other surface changed.
+
+`engine/log-scan.mjs` closes that gap. Each **Agent Weekly** run scans the slice of
+`cycle.log` appended since the previous digest, counts the swallowed-error lines in
+it, and the runner appends an **Engine self-check** section to the digest body — the
+count, a per-path breakdown, and the most recent message. A digest is published, so
+the number leaves the machine.
+
+The watched lines are listed in `SWALLOWED_ERROR_PATTERNS` (`engine/lib.mjs`), and the
+list is deliberately narrow: only failures where *nothing else* records them —
+`notify.mjs`'s three idle-notice catches, `run-cycle.mjs`'s PR lookup, both runners'
+`recoverToMain`, and `publish.mjs`'s gh-account restore. A failed cycle, a failed
+experiment, a failed idea sweep and a failed verify gate are all excluded: they exit
+non-zero, lead the idle notice, or flag the PR, so they already leave the box.
+Each pattern matches the whole line shape rather than its opening words, because
+`cycle.log` also carries the task text of every cycle and a backlog item that quotes
+one of these messages must not be counted as an occurrence of it.
+
+**Opting an experiment in:** set `selfCheck: true` on its registry entry
+(`engine/experiments/registry.mjs`). Agent Weekly carries it because it is the
+recurring artefact that reliably ships.
+
+**State:** `engine/.log-scan.json` records the byte offset the last scan consumed to
+(gitignored — it indexes a machine-local log). `--dry-run` scans but does not advance
+the offset, so a preview never eats the window the next real run should report.
+
+**The scan cannot fail a run.** A missing log, a corrupt state file, an unreadable
+path, a log truncated or rotated mid-window: every case returns "no data" with a
+reason, or restarts from the top of the file. It renders **no data** rather than
+**0** when it could not read, because a scanner reporting zero failures it never
+looked for would just be a second silent failure on top of the first. The read is
+also capped (`LOG_SCAN_MAX_BYTES`, 4 MiB) — an unbounded read is what broke the
+notifier in the first place and must not be reintroduced by the thing watching it.

@@ -8,6 +8,7 @@ import { branchForItem, pickBuildableItem, prListArgs, partitionBuildable } from
 import { lockIsFree, runLocked } from './lib.mjs';
 import { latestIdeaDate, ideasBranch, parseIdeas, idleMarker, sweepReported, IDLE_ISSUE_TITLE, renderIdleNotice } from './lib.mjs';
 import { localDay, localStamp, boxTimeZone } from './lib.mjs';
+import { SWALLOWED_ERROR_PATTERNS, scanSwallowedErrors, resolveLogWindow, renderSelfCheck, LOG_SCAN_MAX_BYTES } from './lib.mjs';
 import { sanitize, SanitizationError } from '../src/lib/sanitize';
 
 describe('shortTitle', () => {
@@ -974,5 +975,170 @@ describe('renderIdleNotice — a failed sweep', () => {
     const out = renderIdleNotice({ sweepDate: '2026-08-16', ideas });
     expect(out).not.toContain('idea sweep failed');
     expect(out.split('\n')[0]).toBe('<!-- engine-idle: sweep=2026-08-16 -->');
+  });
+});
+
+// ─── Swallowed-error telemetry ───────────────────────────────────────────────
+
+// Verbatim copies of the lines the best-effort paths actually emit. If one of
+// those messages is reworded without updating SWALLOWED_ERROR_PATTERNS, these
+// fail — which is the point: a pattern that silently stops matching would
+// recreate the exact blind spot this scan was added to close.
+const LINES = {
+  read: 'Could not read existing issues (spawnSync gh ENOBUFS) — skipping the idle notice.',
+  post: 'Could not post the idle notice (HTTP 502 from api.github.com) — continuing.',
+  close: 'Could not close the idle notice (HTTP 502) — continuing.',
+  pr: 'Could not check for an existing PR on lab/foo (Command failed: gh) — assuming none.',
+  recover: 'Recovery: could not fully reset to main (Command failed: git clean -fd). Check the working tree by hand.',
+  ghUser: 'WARNING: could not determine the previous gh account.',
+};
+
+describe('scanSwallowedErrors', () => {
+  it('matches every line the best-effort paths emit', () => {
+    const r = scanSwallowedErrors(Object.values(LINES).join('\n'));
+    expect(r.total).toBe(6);
+    expect(r.byPattern.map((c) => c.id).sort()).toEqual(
+      SWALLOWED_ERROR_PATTERNS.map((p) => p.id).sort(),
+    );
+  });
+
+  it('counts repeats and reports the most recent line', () => {
+    const r = scanSwallowedErrors([LINES.read, LINES.read, LINES.pr, LINES.read].join('\n'));
+    expect(r.total).toBe(4);
+    expect(r.byPattern[0]).toEqual({ id: 'idle-issue-read', label: expect.any(String), count: 3 });
+    expect(r.latest.line).toBe(LINES.read);
+  });
+
+  it('ignores prose that merely quotes a message', () => {
+    // cycle.log carries the full task text of every cycle, and this very tier's
+    // backlog line names two of these messages inside backticks. Matching on the
+    // opening words alone would count the task description as a failure.
+    const task = 'Task:   Surface the errors the engine swallows — scan for `Could not read existing issues`, `Could not post the idle notice`, and the equivalents in the runners.';
+    expect(scanSwallowedErrors(task).total).toBe(0);
+  });
+
+  it('ignores the dry-run variant, which is a preview and not a failure', () => {
+    const dry = '[dry-run] could not read existing issues (no token) — previewing a fresh issue.';
+    expect(scanSwallowedErrors(dry).total).toBe(0);
+  });
+
+  it('does not count messages that already reach a surface off the box', () => {
+    // Deliberately excluded: these fail a run, flag a PR, or lead the idle notice.
+    const loud = [
+      'Cycle failed: claude exited with an error (1). Returning the working tree to a clean main so the loop can re-run.',
+      'Experiment failed: no experiment report was written. Returning the working tree to a clean main so the loop can re-run.',
+      'Idle idea sweep failed (claude exited with an error) — recovering to main and posting the idle notice anyway.',
+      'Verify gate failed (npm test) — overriding cycle status "done" -> "flagged".',
+    ].join('\n');
+    expect(scanSwallowedErrors(loud).total).toBe(0);
+  });
+
+  it('counts one line once, even though the patterns share a prefix', () => {
+    const r = scanSwallowedErrors(LINES.close);
+    expect(r.total).toBe(1);
+    expect(r.byPattern[0].id).toBe('idle-issue-close');
+  });
+
+  it('is empty and total-zero on empty, null, or undefined input', () => {
+    for (const input of ['', null, undefined, '\n\n  \n']) {
+      const r = scanSwallowedErrors(input);
+      expect(r).toEqual({ total: 0, byPattern: [], latest: null });
+    }
+  });
+});
+
+describe('resolveLogWindow', () => {
+  it('reads the whole file when there is no previous offset', () => {
+    expect(resolveLogWindow(500, null)).toEqual({ start: 0, end: 500, first: true, rotated: false, clipped: false });
+  });
+
+  it('reads only what was appended since the previous offset', () => {
+    expect(resolveLogWindow(500, 200)).toEqual({ start: 200, end: 500, first: false, rotated: false, clipped: false });
+  });
+
+  it('restarts from the top when the offset is past the end of the log', () => {
+    const w = resolveLogWindow(50, 900);
+    expect(w).toEqual({ start: 0, end: 50, first: false, rotated: true, clipped: false });
+  });
+
+  it('treats an offset equal to the size as a caught-up window, not a rotation', () => {
+    expect(resolveLogWindow(500, 500)).toEqual({ start: 500, end: 500, first: false, rotated: false, clipped: false });
+  });
+
+  it('clips an oversized window to its tail', () => {
+    const w = resolveLogWindow(10_000, 0, 1000);
+    expect(w).toMatchObject({ start: 9000, end: 10_000, clipped: true });
+  });
+
+  it('coerces a garbage size to zero rather than producing a negative window', () => {
+    const w = resolveLogWindow(NaN, 400);
+    expect(w).toMatchObject({ start: 0, end: 0, rotated: true });
+  });
+
+  it('defaults to a bounded read cap', () => {
+    expect(LOG_SCAN_MAX_BYTES).toBeGreaterThan(0);
+    expect(resolveLogWindow(LOG_SCAN_MAX_BYTES * 2, null).clipped).toBe(true);
+  });
+});
+
+describe('renderSelfCheck', () => {
+  const ok = (over = {}) => ({
+    status: 'ok', reason: null, total: 0, byPattern: [], latest: null,
+    since: '2026-08-10T07:00:00.000Z', first: false, rotated: false, clipped: false, bytes: 100,
+    ...over,
+  });
+
+  it('reports the count, the breakdown, and the most recent message', () => {
+    const out = renderSelfCheck(ok({
+      total: 25,
+      byPattern: [{ id: 'idle-issue-read', label: 'idle notice: issue lookup failed, notice skipped', count: 25 }],
+      latest: { id: 'idle-issue-read', label: 'x', line: LINES.read },
+    }));
+    expect(out).toContain('## Engine self-check');
+    expect(out).toContain('**25**');
+    expect(out).toContain('idle notice: issue lookup failed, notice skipped — **25**');
+    expect(out).toContain('Most recent:');
+    expect(out).toContain('spawnSync gh ENOBUFS');
+    expect(out).toContain('since the previous digest (2026-08-10T07:00:00.000Z)');
+  });
+
+  it('says so plainly when nothing failed', () => {
+    const out = renderSelfCheck(ok());
+    expect(out).toContain('**0**');
+    expect(out).toContain('No best-effort path failed silently');
+    expect(out).not.toContain('Most recent:');
+  });
+
+  it('renders no data — never a zero — when the scan could not read the log', () => {
+    const out = renderSelfCheck({ status: 'no-data', reason: '`engine/cycle.log` is not on this machine' });
+    expect(out).toContain('**no data**');
+    expect(out).toContain('is not on this machine');
+    expect(out).not.toContain('**0**');
+  });
+
+  it('survives a missing scan result', () => {
+    expect(() => renderSelfCheck(undefined)).not.toThrow();
+    expect(renderSelfCheck(undefined)).toContain('**no data**');
+  });
+
+  it('labels a first scan as covering the whole log', () => {
+    expect(renderSelfCheck(ok({ first: true, since: null }))).toContain('since the start of the log (first scan)');
+  });
+
+  it('notes a rotated or clipped window', () => {
+    const out = renderSelfCheck(ok({ rotated: true, clipped: true }));
+    expect(out).toContain('rotated or truncated');
+    expect(out).toContain('read cap');
+  });
+
+  it('clamps an unbounded error message and neutralises its backticks', () => {
+    const out = renderSelfCheck(ok({
+      total: 1,
+      byPattern: [{ id: 'pr-lookup', label: 'l', count: 1 }],
+      latest: { id: 'pr-lookup', label: 'l', line: `x\`y${'z'.repeat(5000)}` },
+    }));
+    expect(out).toContain('…');
+    expect(out.length).toBeLessThan(1500);
+    expect(out.split('\n').find((l) => l.startsWith('Most recent:')).match(/`/g)).toHaveLength(2);
   });
 });
