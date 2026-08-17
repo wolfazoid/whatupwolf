@@ -447,15 +447,25 @@ export const IDLE_ISSUE_TITLE = 'Engine idle — backlog empty';
 // stay one day behind forever. Keying to the sweep date means the notice fires on
 // the first tick where main actually carries new ideas. `none` covers a repo whose
 // inbox has no dated sections yet, so that case posts exactly once too.
-export function idleMarker(sweepDate) {
-  return `<!-- engine-idle: sweep=${sweepDate || 'none'} -->`;
+//
+// `failedSweep` is the day an attempted sweep THREW. That notice describes the same
+// (older) sweep date the issue has usually already reported, so without a second
+// key it would be swallowed as a duplicate on the one tick where the machine is both
+// idle and broken. Keying it to the failed day as well posts it once, then holds its
+// peace while the same day keeps failing.
+export function idleMarker(sweepDate, failedSweep = null) {
+  const sweep = `sweep=${sweepDate || 'none'}`;
+  return failedSweep
+    ? `<!-- engine-idle: ${sweep} sweep-failed=${failedSweep} -->`
+    : `<!-- engine-idle: ${sweep} -->`;
 }
 
 // Has this sweep already been posted? `texts` is the issue body plus every comment
 // body. Whole-marker matching (including the trailing ` -->`) is what stops
-// '2026-07-2' from matching '2026-07-25'.
-export function sweepReported(texts, sweepDate) {
-  const marker = idleMarker(sweepDate);
+// '2026-07-2' from matching '2026-07-25' — and, because the success marker's ` -->`
+// cannot appear inside a failure marker, what keeps the two apart.
+export function sweepReported(texts, sweepDate, failedSweep = null) {
+  const marker = idleMarker(sweepDate, failedSweep);
   return (texts || []).some((t) => String(t).includes(marker));
 }
 
@@ -481,8 +491,17 @@ function clampBullet(text) {
   return t.length <= IDLE_NOTICE_BULLET_CHARS ? t : `${t.slice(0, IDLE_NOTICE_BULLET_CHARS - 1)}…`;
 }
 
-export function renderIdleNotice({ sweepDate, ideas = [], skipped = [], repoUrl = REPO_URL }) {
-  const L = [idleMarker(sweepDate), ''];
+// `sweepFailure` is `{ date, message }` when today's sweep threw instead of writing
+// ideas. It leads the notice, because a broken sweep is the more urgent fact than an
+// empty backlog, and its message is clamped like any other bullet — a stack trace
+// from `claude` is unbounded and this body must not be.
+export function renderIdleNotice({ sweepDate, ideas = [], skipped = [], sweepFailure = null, repoUrl = REPO_URL }) {
+  const L = [idleMarker(sweepDate, sweepFailure?.date), ''];
+
+  if (sweepFailure) {
+    L.push(`⚠️ **The ${sweepFailure.date} idea sweep failed** — no new ideas were written; the list below is whatever \`main\` already carried. The next tick retries it.`, '');
+    L.push(`> ${clampBullet(sweepFailure.message)}`, '');
+  }
 
   if (skipped.length) {
     L.push(`The loop found nothing buildable, but the backlog is **not** empty — ${skipped.length} unchecked item(s) are parked behind an existing PR:`, '');

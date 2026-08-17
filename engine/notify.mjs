@@ -69,7 +69,11 @@ function lookupOrNull(repoDir, dry) {
   }
 }
 
-export function notifyIdle({ repoDir, sweepDate, ideas = [], skipped = [], dry = false }) {
+// `sweepFailure` (`{ date, message }`) is set when the idle idea sweep threw. The
+// notice still goes out — that is the whole point of reporting it — and the marker
+// carries the failed day so it is not mistaken for the already-posted notice of the
+// older sweep main still holds.
+export function notifyIdle({ repoDir, sweepDate, ideas = [], skipped = [], sweepFailure = null, dry = false }) {
   const { ok, issue } = lookupOrNull(repoDir, dry);
   if (!ok) return;
   // Everything past this point — the idempotence check, the render, and the
@@ -77,11 +81,12 @@ export function notifyIdle({ repoDir, sweepDate, ideas = [], skipped = [], dry =
   // obligation to validate its inputs; the obligation to never throw belongs
   // to this module, for any caller, not just the one we happen to control.
   try {
-    if (issue && sweepReported(issue.texts, sweepDate)) {
-      console.log(`Idle notice: sweep ${sweepDate || 'none'} already reported on issue #${issue.number}.`);
+    if (issue && sweepReported(issue.texts, sweepDate, sweepFailure?.date)) {
+      const what = sweepFailure ? `the failed ${sweepFailure.date} sweep` : `sweep ${sweepDate || 'none'}`;
+      console.log(`Idle notice: ${what} already reported on issue #${issue.number}.`);
       return;
     }
-    const body = renderIdleNotice({ sweepDate, ideas, skipped });
+    const body = renderIdleNotice({ sweepDate, ideas, skipped, sweepFailure });
     if (dry) {
       console.log(`[dry-run] would ${issue ? `comment on issue #${issue.number}` : `open issue "${IDLE_ISSUE_TITLE}"`}:`);
       console.log(body);

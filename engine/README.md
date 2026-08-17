@@ -241,7 +241,15 @@ Posting is keyed to the **sweep date**, not the calendar date. The idea sweep wr
 `IDEAS.md` on a branch that auto-merges, so at the moment it finishes `main` still
 holds the previous day's ideas; a calendar rule would report a day behind forever.
 The notice fires on the first tick where `main` actually carries the new sweep,
-usually the hour after.
+usually the hour after. The runner checks `main` back out before reading `IDEAS.md`
+for the notice — the sweep leaves HEAD on `lab/ideas-<date>`, and reading that copy
+would stamp the marker a day early and swallow the real notice as a duplicate.
+
+**When the sweep itself fails** (`claude` exits non-zero, or writes no report), the
+notice still goes out and leads with the failure and its error. That notice is keyed
+to the failed day as well as the sweep date, so it posts once rather than being
+mistaken for the already-reported notice of the older sweep `main` still holds — and
+a sweep that keeps failing does not comment every hour.
 
 **One-time setup, required:** GitHub → Settings → Notifications → enable
 **"Include your own updates"**. The runner authenticates as `wolfazoid`, and GitHub
