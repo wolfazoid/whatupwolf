@@ -86,9 +86,11 @@ function gate(cmd, args) {
   }
 }
 
-// Returns the working tree to a clean main after a failed cycle, so the always-on
-// loop stays re-runnable: the next run starts from a known-good state instead of a
-// half-finished feature branch. `-f` drops the machine's uncommitted edits (it never
+// Returns the working tree to a clean main, so the always-on loop stays re-runnable:
+// the next run starts from a known-good state instead of a half-finished feature
+// branch. Called after a failed cycle, and by the idle path once the idea sweep is
+// done — that sweep also leaves HEAD on its own branch, and the idle notice has to
+// read main's IDEAS.md. `-f` drops the machine's uncommitted edits (it never
 // commits, so nothing durable is lost) and `git clean -fd` removes any stray files it
 // created. Both respect .gitignore, so PAUSED, cron.log, node_modules, and .env survive.
 function recoverToMain() {
@@ -275,17 +277,37 @@ function runCycleLocked() {
   const { next: picked, skipped } = pickNextBuildable(items);
   if (!picked) {
     console.log('Nothing buildable — the backlog is empty or every unchecked item has already been built into a PR.');
-    runIdleIdeation();
-    // IDEAS.md is re-read here rather than reusing anything runIdleIdeation holds:
-    // the sweep publishes on a branch that auto-merges later, so the copy on main is
-    // the one the notice should describe. That is what the sweep-date marker is
-    // designed around — see the sweep-date note in engine/README.md.
+    // The sweep throws on a `claude` failure or a missing report, and idle-AND-broken
+    // is precisely when a notice matters most. Left bare, that exception unwound past
+    // the notifyIdle below to the top-level catch, which recovers to main and drops
+    // the branch — nothing posted, the only trace a line in the gitignored cycle.log.
+    // Caught here, the notice still goes out and says the sweep failed.
+    let sweepFailure = null;
+    try {
+      runIdleIdeation();
+    } catch (err) {
+      sweepFailure = { date: localDay(new Date()), message: err.message };
+      console.error(`Idle idea sweep failed (${err.message}) — recovering to main and posting the idle notice anyway.`);
+    }
+    // Back to main before IDEAS.md is read. The sweep runs on lab/ideas-<date> and
+    // nothing returns from it: publishBranch commits, pushes, and opens the PR, but
+    // never checks main back out, so HEAD is still on the branch here with today's
+    // section already committed. The sweep-date marker is keyed to what MAIN carries
+    // — it fires on the first tick where main actually has the new sweep, the hour
+    // after the PR auto-merges (see the sweep-date note in engine/README.md) — so
+    // reading the branch copy stamps today's marker a day early and then suppresses
+    // the real notice as a duplicate. recoverToMain rather than a plain checkout
+    // because a failed sweep can leave the tree dirty, and it never throws; on the
+    // clean path its -f/clean are no-ops, and under --dry-run it does nothing at all
+    // (dry never leaves main, so the read is already main's copy).
+    recoverToMain();
     const ideasMd = existsSync(IDEAS) ? readFileSync(IDEAS, 'utf8') : '';
     notifyIdle({
       repoDir: REPO_DIR,
       sweepDate: latestIdeaDate(ideasMd),
       ideas: parseIdeas(ideasMd),
       skipped,
+      sweepFailure,
       dry: DRY,
     });
     return;

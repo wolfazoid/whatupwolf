@@ -261,3 +261,61 @@ describe('notify — bounded reads', () => {
     expect(execFileSync.mock.calls.some(([, a]) => a[0] === 'issue' && a[1] === 'comment')).toBe(false);
   });
 });
+
+// The idle-and-broken path: the sweep threw, so main still carries the previous
+// sweep — the one the standing issue already reported. The failure has to get out
+// anyway, and it must not repeat every hour once it has.
+describe('notify — a failed sweep', () => {
+  beforeEach(() => {
+    execFileSync.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('comments even though main\'s sweep date was already reported', () => {
+    execFileSync.mockImplementation((cmd, args) => {
+      if (args[0] === 'issue' && args[1] === 'list') return issueListJson([idleMarker('2026-08-16')]);
+      if (args[0] === 'issue' && args[1] === 'comment') return '';
+      if (args[0] === 'api') return commentsText();
+      throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
+    });
+
+    notifyIdle({
+      repoDir: '/tmp',
+      sweepDate: '2026-08-16',
+      ideas: [],
+      skipped: [],
+      sweepFailure: { date: '2026-08-17', message: 'no cycle report was written' },
+      dry: false,
+    });
+
+    const commentCall = execFileSync.mock.calls.find(([, args]) => args[0] === 'issue' && args[1] === 'comment');
+    expect(commentCall).toBeTruthy();
+    const body = commentCall[1][commentCall[1].indexOf('--body') + 1];
+    expect(body).toContain(idleMarker('2026-08-16', '2026-08-17'));
+    expect(body).toContain('no cycle report was written');
+  });
+
+  it('does not re-report the same failure on the next tick', () => {
+    execFileSync.mockImplementation((cmd, args) => {
+      if (args[0] === 'issue' && args[1] === 'list') {
+        return issueListJson([idleMarker('2026-08-16'), idleMarker('2026-08-16', '2026-08-17')]);
+      }
+      if (args[0] === 'api') return commentsText();
+      throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
+    });
+
+    notifyIdle({
+      repoDir: '/tmp',
+      sweepDate: '2026-08-16',
+      ideas: [],
+      skipped: [],
+      sweepFailure: { date: '2026-08-17', message: 'no cycle report was written' },
+      dry: false,
+    });
+
+    expect(execFileSync.mock.calls.some(([, args]) => args[0] === 'issue' && args[1] === 'comment')).toBe(false);
+    expect(execFileSync.mock.calls.some(([, args]) => args[0] === 'issue' && args[1] === 'create')).toBe(false);
+  });
+});

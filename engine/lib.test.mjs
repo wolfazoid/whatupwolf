@@ -916,3 +916,63 @@ describe('renderIdleNotice — bounded size', () => {
     expect(out).not.toMatch(/older idea/);
   });
 });
+
+// A sweep that THROWS (claude exits non-zero, or writes no report) leaves main
+// carrying the previous day's ideas, so the notice's sweep date is one the issue
+// has almost certainly already reported. Keying the marker to the failed attempt
+// as well is what keeps that notice from being suppressed as a duplicate.
+describe('idleMarker / sweepReported — a failed sweep', () => {
+  it('stamps a failed attempt with its own marker', () => {
+    expect(idleMarker('2026-08-16', '2026-08-17'))
+      .toBe('<!-- engine-idle: sweep=2026-08-16 sweep-failed=2026-08-17 -->');
+  });
+
+  it('does not treat the successful notice for a sweep as the failure notice, or vice versa', () => {
+    expect(sweepReported([idleMarker('2026-08-16', '2026-08-17')], '2026-08-16')).toBe(false);
+    expect(sweepReported([idleMarker('2026-08-16')], '2026-08-16', '2026-08-17')).toBe(false);
+  });
+
+  it('reports a sweep that keeps failing once per day, not once per tick', () => {
+    const posted = [idleMarker('2026-08-16', '2026-08-17')];
+    expect(sweepReported(posted, '2026-08-16', '2026-08-17')).toBe(true);
+    expect(sweepReported(posted, '2026-08-16', '2026-08-18')).toBe(false);
+  });
+});
+
+describe('renderIdleNotice — a failed sweep', () => {
+  const ideas = [{ date: '2026-08-16', group: 'Ideas', text: 'alpha' }];
+  const sweepFailure = { date: '2026-08-17', message: 'claude exited with an error during ideation (status 1)' };
+
+  it('leads with the failure marker so the notice is not suppressed as a duplicate', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-08-16', ideas, sweepFailure });
+    expect(out.split('\n')[0]).toBe('<!-- engine-idle: sweep=2026-08-16 sweep-failed=2026-08-17 -->');
+  });
+
+  it('says the sweep failed, names the day, and quotes the error', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-08-16', ideas, sweepFailure });
+    expect(out).toContain('idea sweep failed');
+    expect(out).toContain('2026-08-17');
+    expect(out).toContain('status 1');
+  });
+
+  it('still lists the ideas main carries', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-08-16', ideas, sweepFailure });
+    expect(out).toContain('alpha');
+  });
+
+  it('clamps a runaway error message like every other bullet', () => {
+    const out = renderIdleNotice({
+      sweepDate: '2026-08-16',
+      ideas,
+      sweepFailure: { date: '2026-08-17', message: 'x'.repeat(5000) },
+    });
+    expect(out).toContain(String.fromCharCode(0x2026));
+    expect(out.length).toBeLessThan(2000);
+  });
+
+  it('says nothing about a failure on the ordinary path', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-08-16', ideas });
+    expect(out).not.toContain('idea sweep failed');
+    expect(out.split('\n')[0]).toBe('<!-- engine-idle: sweep=2026-08-16 -->');
+  });
+});
