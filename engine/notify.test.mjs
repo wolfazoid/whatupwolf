@@ -53,18 +53,19 @@ describe('notify (dry mode)', () => {
 // Helper: build the JSON `gh issue list` would print for a single matching
 // idle issue with the given comment/body texts (or no issue at all, when
 // `texts` is null).
+// `gh issue list` no longer carries comment bodies — they are read separately and
+// windowed. `ghComments` stands in for that second call.
+let ghComments = [];
+
 function issueListJson(texts) {
+  ghComments = texts === null ? [] : texts.slice(1);
   if (texts === null) return JSON.stringify([]);
-  const [body, ...comments] = texts;
-  return JSON.stringify([
-    {
-      number: 42,
-      title: IDLE_ISSUE_TITLE,
-      body,
-      comments: comments.map((c) => ({ body: c })),
-    },
-  ]);
+  const [body] = texts;
+  return JSON.stringify([{ number: 42, title: IDLE_ISSUE_TITLE, body }]);
 }
+
+// What `gh api .../comments --jq '.[].body'` prints: bodies, newline-separated.
+const commentsText = () => ghComments.join('\n');
 
 describe('notify (live mode, gh mocked)', () => {
   beforeEach(() => {
@@ -78,6 +79,7 @@ describe('notify (live mode, gh mocked)', () => {
     execFileSync.mockImplementation((cmd, args) => {
       if (args[0] === 'issue' && args[1] === 'list') return issueListJson(null);
       if (args[0] === 'issue' && args[1] === 'create') return 'https://github.com/x/y/issues/1';
+      if (args[0] === 'api') return commentsText();
       throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
     });
 
@@ -108,6 +110,7 @@ describe('notify (live mode, gh mocked)', () => {
         return issueListJson([`${idleMarker('2026-07-24')}\nold body`]);
       }
       if (args[0] === 'issue' && args[1] === 'comment') return '';
+      if (args[0] === 'api') return commentsText();
       throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
     });
 
@@ -135,6 +138,7 @@ describe('notify (live mode, gh mocked)', () => {
         // Existing issue already carries THIS sweep's marker.
         return issueListJson([`${idleMarker('2026-07-25')}\nbody`]);
       }
+      if (args[0] === 'api') return commentsText();
       throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
     });
 
@@ -154,6 +158,7 @@ describe('notify (live mode, gh mocked)', () => {
     execFileSync.mockImplementation((cmd, args) => {
       if (args[0] === 'issue' && args[1] === 'list') return issueListJson(['some body']);
       if (args[0] === 'issue' && args[1] === 'close') return '';
+      if (args[0] === 'api') return commentsText();
       throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
     });
 
@@ -171,6 +176,7 @@ describe('notify (live mode, gh mocked)', () => {
     execFileSync.mockImplementation((cmd, args) => {
       if (args[0] === 'issue' && args[1] === 'list') return issueListJson(null);
       if (args[0] === 'issue' && args[1] === 'create') throw new Error('gh: network error');
+      if (args[0] === 'api') return commentsText();
       throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
     });
 
@@ -181,5 +187,77 @@ describe('notify (live mode, gh mocked)', () => {
       skipped: [],
       dry: false,
     })).not.toThrow();
+  });
+});
+
+describe('notify — bounded reads', () => {
+  beforeEach(() => {
+    execFileSync.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const run = () => notifyIdle({
+    repoDir: '/tmp', sweepDate: '2026-07-25', ideas: [], skipped: [], dry: false,
+  });
+
+  it('never asks gh for every comment body at once', () => {
+    execFileSync.mockImplementation((cmd, args) => {
+      if (args[0] === 'issue' && args[1] === 'list') return issueListJson([`${idleMarker('2026-07-24')}\nold`]);
+      if (args[0] === 'api') return commentsText();
+      if (args[0] === 'issue' && args[1] === 'comment') return '';
+      throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
+    });
+
+    run();
+
+    const list = execFileSync.mock.calls.find(([, a]) => a[0] === 'issue' && a[1] === 'list');
+    const fields = list[1][list[1].indexOf('--json') + 1];
+    expect(fields).not.toContain('comments');
+  });
+
+  it('windows the comment read rather than pulling the whole thread', () => {
+    execFileSync.mockImplementation((cmd, args) => {
+      if (args[0] === 'issue' && args[1] === 'list') return issueListJson([`${idleMarker('2026-07-24')}\nold`]);
+      if (args[0] === 'api') return commentsText();
+      if (args[0] === 'issue' && args[1] === 'comment') return '';
+      throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
+    });
+
+    run();
+
+    const api = execFileSync.mock.calls.find(([, a]) => a[0] === 'api');
+    expect(api).toBeTruthy();
+    expect(api[1][1]).toContain('/issues/42/comments');
+    expect(api[1][1]).toMatch(/since=\d{4}-\d{2}-\d{2}/);
+  });
+
+  it('gives every gh call headroom past the 1 MiB default that broke it', () => {
+    execFileSync.mockImplementation((cmd, args) => {
+      if (args[0] === 'issue' && args[1] === 'list') return issueListJson(null);
+      if (args[0] === 'issue' && args[1] === 'create') return 'https://x/y/1';
+      throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
+    });
+
+    run();
+
+    for (const [, , opts] of execFileSync.mock.calls) {
+      expect(opts.maxBuffer).toBeGreaterThan(1024 * 1024);
+    }
+  });
+
+  it('still suppresses a sweep already reported in a comment', () => {
+    execFileSync.mockImplementation((cmd, args) => {
+      if (args[0] === 'issue' && args[1] === 'list') {
+        return issueListJson([`${idleMarker('2026-07-01')}\nbody`, `${idleMarker('2026-07-25')}\nalready`]);
+      }
+      if (args[0] === 'api') return commentsText();
+      throw new Error(`unexpected call: ${cmd} ${args.join(' ')}`);
+    });
+
+    run();
+
+    expect(execFileSync.mock.calls.some(([, a]) => a[0] === 'issue' && a[1] === 'comment')).toBe(false);
   });
 });

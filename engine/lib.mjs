@@ -466,6 +466,21 @@ export const REPO_URL = 'https://github.com/wolfazoid/whatupwolf';
 // "Nothing buildable" conflates two different situations — a genuinely empty backlog
 // and one whose remaining items are all parked behind an open PR. The notice
 // distinguishes them, because the fix differs (queue work vs. merge a PR).
+// The notice is a signal, not an archive: it inlines only the newest few sweeps and
+// clamps each bullet, then points at IDEAS.md for the rest. Without both caps the
+// body grows by roughly one sweep per day forever — and because every notice is
+// posted as a new comment that the NEXT cycle reads back, unbounded growth here is
+// what silently killed the notifier on 2026-08-11 (a 1,059,864-byte read against
+// execFileSync's 1 MiB default maxBuffer). Whatever bounds this file must stay
+// bounded; GitHub's own comment ceiling is 65,536 characters.
+export const IDLE_NOTICE_SWEEPS = 3;
+export const IDLE_NOTICE_BULLET_CHARS = 600;
+
+function clampBullet(text) {
+  const t = String(text);
+  return t.length <= IDLE_NOTICE_BULLET_CHARS ? t : `${t.slice(0, IDLE_NOTICE_BULLET_CHARS - 1)}…`;
+}
+
 export function renderIdleNotice({ sweepDate, ideas = [], skipped = [], repoUrl = REPO_URL }) {
   const L = [idleMarker(sweepDate), ''];
 
@@ -480,12 +495,19 @@ export function renderIdleNotice({ sweepDate, ideas = [], skipped = [], repoUrl 
   L.push('');
 
   const dates = [...new Set(ideas.map((i) => i.date))].sort().reverse();
-  for (const d of dates) {
+  const shown = dates.slice(0, IDLE_NOTICE_SWEEPS);
+  const elided = dates.slice(IDLE_NOTICE_SWEEPS);
+  for (const d of shown) {
     L.push(`### ${d}`, '');
     for (const idea of ideas.filter((i) => i.date === d)) {
-      L.push(`- ${idea.group ? `_${idea.group}_ — ` : ''}${idea.text}`);
+      L.push(`- ${idea.group ? `_${idea.group}_ — ` : ''}${clampBullet(idea.text)}`);
     }
     L.push('');
+  }
+  if (elided.length) {
+    const n = ideas.filter((i) => elided.includes(i.date)).length;
+    const range = elided.length === 1 ? elided[0] : `${elided[elided.length - 1]} – ${elided[0]}`;
+    L.push(`_+ ${n} older idea(s) across ${elided.length} earlier sweep(s) (${range}) — read them in [IDEAS.md](${repoUrl}/blob/main/engine/IDEAS.md)._`, '');
   }
 
   L.push('**Triage:** queue → copy the bullet into `engine/BACKLOG.md` as `- [ ]` and delete it from the inbox · reject → move it to `engine/IDEAS-rejected.md` · ignore → leave it.');

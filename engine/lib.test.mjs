@@ -869,3 +869,50 @@ describe('partitionBuildable', () => {
     expect(skipped).toEqual([]);
   });
 });
+
+describe('renderIdleNotice — bounded size', () => {
+  // 30 sweeps of 8 long bullets: the shape the real inbox reached before the
+  // notice grew past what the next cycle could read back.
+  const many = [];
+  for (let d = 1; d <= 30; d += 1) {
+    const date = `2026-07-${String(d).padStart(2, '0')}`;
+    for (let b = 0; b < 8; b += 1) {
+      many.push({ date, group: b % 2 ? 'Opportunities' : 'Ideas', text: `sweep ${date} bullet ${b} ` + 'x'.repeat(2000) });
+    }
+  }
+
+  it('inlines only the newest few sweeps', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-30', ideas: many });
+    const sections = out.match(/^### \d{4}-\d{2}-\d{2}$/gm) || [];
+    expect(sections.length).toBeLessThanOrEqual(3);
+    expect(out).toContain('### 2026-07-30');
+    expect(out).not.toContain('### 2026-07-01');
+  });
+
+  it('accounts for the sweeps it elided instead of dropping them silently', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-30', ideas: many });
+    expect(out).toMatch(/216 older/);
+    expect(out).toContain('27 earlier sweep');
+  });
+
+  it('stays well inside a GitHub comment regardless of inbox size', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-30', ideas: many });
+    expect(out.length).toBeLessThan(65536);
+  });
+
+  it('still reports the full untriaged count', () => {
+    const out = renderIdleNotice({ sweepDate: '2026-07-30', ideas: many });
+    expect(out).toContain('**240**');
+  });
+
+  it('leaves a small inbox untouched', () => {
+    const few = [
+      { date: '2026-07-24', group: 'Ideas', text: 'alpha' },
+      { date: '2026-07-25', group: 'Ideas', text: 'beta' },
+    ];
+    const out = renderIdleNotice({ sweepDate: '2026-07-25', ideas: few });
+    expect(out).toContain('alpha');
+    expect(out).toContain('beta');
+    expect(out).not.toMatch(/older idea/);
+  });
+});
