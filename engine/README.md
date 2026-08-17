@@ -95,6 +95,18 @@ Layered, most-accessible first:
   In Tier A (the default — variable unset), the guard **labels only and never merges**;
   every PR waits for your manual merge. To drop back to Tier A: `gh variable delete AUTONOMY_TIER`.
 
+  **Arming is not once-and-done.** GitHub drops a pending auto-merge request on some
+  check-state transitions, and the guard used to arm only at `opened`/`synchronize` — so
+  PR #77 (2026-08-11) lost its arming 24s after it was set, went green with nothing left to
+  merge it, and sat open until later sweeps made it CONFLICTING. The guard now also runs on
+  `workflow_run` when **CI** completes: it resolves the PR for that head SHA, skips the event
+  if the PR has since moved past it, re-runs the *same* allowlist evaluation, and only then
+  re-arms. A `concurrency` group keyed on the head branch serialises the jobs for one PR, and
+  only a push may cancel one in flight. Two consequences worth knowing: `workflow_run` fires
+  only from the copy of `guard.yml` on `main`, so this does nothing on a branch; and a PR that
+  is pushed onto a protected path now gets its auto-merge **disarmed** (`--disable-auto`), not
+  just labelled.
+
 ## Experiments
 
 Separate from the self-building coding loop, `engine/run-experiment.mjs <name>` runs a

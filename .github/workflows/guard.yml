@@ -11,9 +11,44 @@ name: Guard
 # that `gh pr merge --auto` immediately merges a mergeable PR when there is no
 # branch protection to wait behind. Tier B is only safe WITH branch protection
 # requiring the `build` check (see engine/README.md).
+#
+# TWO TRIGGERS, ONE EVALUATION. The `pull_request` trigger covers the diff
+# changing. The `workflow_run` trigger covers the *checks* changing: GitHub drops
+# a pending auto-merge request on some check-state transitions, and before this
+# there was nothing to put it back — PR #77 (2026-08-11) was armed 24s before CI
+# finished, lost the arming, and sat green-and-unmerged until six later sweeps
+# made it CONFLICTING. Re-arming runs the *same* allowlist evaluation as the
+# first arming: it is never unconditional, or it would become a way to merge a
+# diff the guard already rejected.
+#
+# Why `workflow_run` and not `check_suite`: a `check_suite` completed event does
+# not start a workflow when the suite was created by GitHub Actions, which is
+# exactly the case here (the suite we care about is ci.yml's). `workflow_run`
+# has no such exclusion. Note it only fires from the copy of this file on the
+# default branch.
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+# Serialise every guard job for one PR. Without this, two pushes in quick
+# succession ran two jobs whose finish order was not the push order, and the
+# older diff's job could arm auto-merge after the newer one had flagged it.
+#
+# The key is the head branch, not the PR number: `workflow_run` has no
+# `pull_request.number` and its `pull_requests[]` is empty for fork PRs, so
+# branch is the only value both events can produce. (Two forks pushing the same
+# branch name would share a group; this repo takes no fork PRs.)
+#
+# cancel-in-progress only when a *push* starts the job: a newer diff should kill
+# an in-flight evaluation of an older one. A `workflow_run` job queues behind
+# instead — it may be reporting on a stale SHA, and must not cancel a push's
+# evaluation. (It also re-checks staleness itself, below.)
+concurrency:
+  group: guard-${{ github.event.pull_request.head.ref || github.event.workflow_run.head_branch }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: write
@@ -24,10 +59,47 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
-      PR: ${{ github.event.pull_request.number }}
     steps:
+      - name: Resolve the PR this event belongs to
+        id: pr
+        env:
+          PR_FROM_EVENT: ${{ github.event.pull_request.number }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          skip() { echo "$1"; echo "number=" >> "$GITHUB_OUTPUT"; exit 0; }
+
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            echo "number=$PR_FROM_EVENT" >> "$GITHUB_OUTPUT"
+            echo "Triggered by pull_request on #$PR_FROM_EVENT."
+            exit 0
+          fi
+
+          # workflow_run: CI finished. Re-arming is for green PR runs only.
+          [ "$RUN_EVENT" = "pull_request" ] || skip "CI ran for a '$RUN_EVENT' event, not a PR — nothing to re-arm."
+          [ "$RUN_CONCLUSION" = "success" ] || skip "CI concluded '$RUN_CONCLUSION' — not re-arming."
+
+          pr=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RUN_HEAD_SHA/pulls" \
+                 --jq 'map(select(.state == "open")) | first | .number // empty')
+          [ -n "$pr" ] || skip "No open PR for $RUN_HEAD_SHA."
+
+          # A completion for a SHA the PR has already moved past must not
+          # re-arm: the newer push owns the decision, and its own CI run will
+          # trigger a fresh evaluation.
+          head=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json headRefOid --jq .headRefOid)
+          [ "$head" = "$RUN_HEAD_SHA" ] \
+            || skip "Stale: CI ran on $RUN_HEAD_SHA but #$pr is now at $head — a newer push owns this PR."
+
+          echo "number=$pr" >> "$GITHUB_OUTPUT"
+          echo "CI went green on #$pr ($RUN_HEAD_SHA) — re-evaluating."
+
       - name: List changed files
         id: files
+        if: steps.pr.outputs.number != ''
+        env:
+          PR: ${{ steps.pr.outputs.number }}
         run: |
           files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only)
           echo "Changed files:"; echo "$files"
@@ -39,6 +111,9 @@ jobs:
 
       - name: Evaluate against allowlist
         id: guard
+        if: steps.pr.outputs.number != ''
+        env:
+          FILES: ${{ steps.files.outputs.list }}
         run: |
           allowed=1
           while IFS= read -r f; do
@@ -48,21 +123,47 @@ jobs:
               src/content/lab/*|engine/*|src/lib/*) ;;
               *) echo "protected: $f"; allowed=0 ;;
             esac
-          done <<< '${{ steps.files.outputs.list }}'
+          done <<< "$FILES"
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
 
       - name: Enable auto-merge (allowlisted PRs, Tier B only)
-        if: steps.guard.outputs.allowed == '1' && vars.AUTONOMY_TIER == 'B'
+        if: steps.pr.outputs.number != '' && steps.guard.outputs.allowed == '1' && vars.AUTONOMY_TIER == 'B'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
         run: |
           gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --squash \
             || echo "Could not enable auto-merge — PR left open for manual merge."
 
       - name: Tier A — allowlisted, auto-merge OFF
-        if: steps.guard.outputs.allowed == '1' && vars.AUTONOMY_TIER != 'B'
+        if: steps.pr.outputs.number != '' && steps.guard.outputs.allowed == '1' && vars.AUTONOMY_TIER != 'B'
         run: echo "✅ Allowlisted PR. Tier A (AUTONOMY_TIER != B) — auto-merge is OFF; left open for your manual merge."
 
-      - name: Flag protected PRs for human review
-        if: steps.guard.outputs.allowed != '1'
+      # The other direction of the same hinge: a PR can open allowlisted, get
+      # auto-merge armed, and then be pushed a commit touching a protected path.
+      # Labelling it is decoration if the arming stays live — GitHub would merge
+      # it the moment CI went green. Take the arming back first, then label.
+      - name: Disarm auto-merge on protected PRs
+        if: steps.pr.outputs.number != '' && steps.guard.outputs.allowed != '1'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
         run: |
+          if gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --disable-auto; then
+            echo "⛔ Auto-merge disarmed — this PR now touches a protected path."
+          else
+            echo "No auto-merge was armed on #$PR; nothing to disarm."
+          fi
+
+      - name: Flag protected PRs for human review
+        if: steps.pr.outputs.number != '' && steps.guard.outputs.allowed != '1'
+        env:
+          PR: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          labels=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json labels --jq '[.labels[].name] | join(" ")')
+          case " $labels " in
+            *" needs-human "*)
+              echo "#$PR is already flagged needs-human — not commenting again."
+              exit 0 ;;
+          esac
           gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label needs-human || true
           gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "🔒 This PR touches **protected paths** (core site / your content / engine constitution / CI config). Auto-merge was **not** enabled — it needs your review and manual merge."
