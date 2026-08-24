@@ -42,9 +42,9 @@ const RUN_BLOCK = extractRunBlock(readFileSync(GUARD_FILE, 'utf8'), 'Evaluate ag
 
 /**
  * Run the guard's real evaluation script over a list of changed paths.
- * The GitHub expression that feeds the heredoc is swapped for the shell variable
- * we set; everything else — the `case`, the arm order, the `allowed` flag — is the
- * workflow's own code.
+ * The workflow passes the file list through the FILES env var (never spliced
+ * into the script text), so the test feeds it the same way; everything else —
+ * the `case`, the arm order, the `allowed` flag — is the workflow's own code.
  *
  * @param {string[]} files
  * @returns {{ allowed: boolean, log: string }}
@@ -52,13 +52,12 @@ const RUN_BLOCK = extractRunBlock(readFileSync(GUARD_FILE, 'utf8'), 'Evaluate ag
 function evaluate(files) {
   const dir = mkdtempSync(join(tmpdir(), 'guard-'));
   const outputFile = join(dir, 'github_output');
-  const script = RUN_BLOCK.replace("'${{ steps.files.outputs.list }}'", '"$CHANGED_FILES"');
-  expect(script, 'expected the heredoc to read the changed-file list').toContain('"$CHANGED_FILES"');
+  expect(RUN_BLOCK, 'expected the heredoc to read the changed-file list').toContain('"$FILES"');
 
   try {
-    const log = execFileSync('/bin/bash', ['-c', script], {
+    const log = execFileSync('/bin/bash', ['-c', RUN_BLOCK], {
       encoding: 'utf8',
-      env: { ...process.env, CHANGED_FILES: files.join('\n'), GITHUB_OUTPUT: outputFile },
+      env: { ...process.env, FILES: files.join('\n'), GITHUB_OUTPUT: outputFile },
     });
     const output = readFileSync(outputFile, 'utf8');
     expect(output, 'guard wrote no allowed= flag').toMatch(/^allowed=[01]$/m);
