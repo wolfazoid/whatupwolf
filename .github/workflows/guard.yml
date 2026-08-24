@@ -3,7 +3,16 @@ name: Guard
 # Path-based trust boundary. A PR is "allowlisted" only if every changed file is
 # within the machine's own zone (Lab posts + build machinery). Anything touching
 # the core site, Wolf's writing/work, config, the engine's constitution
-# (CYCLE.md), or .github/** is flagged for Wolf's manual merge.
+# (CYCLE.md), the leak guard (src/lib/sanitize*), or .github/** is flagged for
+# Wolf's manual merge.
+#
+# WHY sanitize* is carved out of src/lib/*: src/lib/sanitize.core.mjs is the
+# fail-closed secret scan every monitor report passes through before it is
+# published, and src/lib/sanitize.test.ts is the only thing asserting it still
+# fails closed. Left inside the allowlist, one machine-authored PR could weaken
+# the scan AND relax the test that would have caught it, then merge itself on
+# green CI with no human in the path. The arm sits BEFORE the allowlist arm so it
+# wins; the rest of src/lib/ (feed.ts, lab-filter.ts, tech-level.ts) stays in-zone.
 #
 # TIER SWITCH: this guard only auto-merges when the repo variable AUTONOMY_TIER
 # is set to "B" (Tier B, hands-off). Unset/anything-else = Tier A: the guard
@@ -51,6 +60,7 @@ jobs:
             [ -z "$f" ] && continue
             case "$f" in
               engine/CYCLE.md) echo "protected (constitution): $f"; allowed=0 ;;
+              src/lib/sanitize*) echo "protected (leak guard): $f"; allowed=0 ;;
               src/content/lab/*|engine/*|src/lib/*) ;;
               *) echo "protected: $f"; allowed=0 ;;
             esac
@@ -71,4 +81,4 @@ jobs:
         if: steps.guard.outputs.allowed != '1'
         run: |
           gh pr edit "$PR" --repo "$GITHUB_REPOSITORY" --add-label needs-human || true
-          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "🔒 This PR touches **protected paths** (core site / your content / engine constitution / CI config). Auto-merge was **not** enabled — it needs your review and manual merge."
+          gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body "🔒 This PR touches **protected paths** (core site / your content / engine constitution / leak guard / CI config). Auto-merge was **not** enabled — it needs your review and manual merge."
