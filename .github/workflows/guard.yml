@@ -39,6 +39,12 @@ jobs:
 
       - name: Evaluate against allowlist
         id: guard
+        # The file list arrives via env, never spliced into the script text. A
+        # changed path containing a quote is then just data in "$LIST" — it can
+        # fail the allowlist, but it can never be parsed as shell in the job
+        # that decides whether a PR auto-merges.
+        env:
+          LIST: ${{ steps.files.outputs.list }}
         run: |
           allowed=1
           while IFS= read -r f; do
@@ -48,7 +54,7 @@ jobs:
               src/content/lab/*|engine/*|src/lib/*) ;;
               *) echo "protected: $f"; allowed=0 ;;
             esac
-          done <<< '${{ steps.files.outputs.list }}'
+          done <<< "$LIST"
           echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
 
       - name: Enable auto-merge (allowlisted PRs, Tier B only)
