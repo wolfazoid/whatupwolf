@@ -53,7 +53,12 @@ export const EDGAR_USER_AGENT = 'whatupwolf.com wolf@wearefeasting.com';
 export async function fetchEdgarEvents(fetchImpl: typeof fetch = fetch): Promise<FeedEvent[]> {
   const res = await fetchImpl(EDGAR_URL, {
     headers: { 'User-Agent': EDGAR_USER_AGENT },
-  });
+    // Cloudflare-specific: cache the EDGAR subrequest at the edge for 60s so
+    // visitor polls don't relay 1:1 to EDGAR (the Worker's own response is
+    // never edge-cached; s-maxage on it only reaches browsers). Ignored by
+    // non-Cloudflare runtimes and by injected test fetches.
+    cf: { cacheTtl: 60, cacheEverything: true },
+  } as RequestInit);
   if (!res.ok) throw new Error(`EDGAR responded ${res.status}`);
   return parseEdgarAtom(await res.text());
 }

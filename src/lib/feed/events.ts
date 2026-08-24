@@ -5,10 +5,12 @@ const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 /**
  * The whole /api/events response, kept out of the Astro route so it can be
- * tested with an injected fetch. The Cache-Control on success is what keeps
- * EDGAR under its rate limit: Cloudflare's edge serves visitor polls for
- * 60s (and stale for 5 min while revalidating), so the origin fetch runs
- * at most about once a minute per colo.
+ * tested with an injected fetch. The success Cache-Control reaches browsers
+ * (15s) and any intermediate caches, but it does NOT put this response in
+ * Cloudflare's edge cache — s-maxage on a Worker-generated response has no
+ * such effect. The actual EDGAR rate-limit protection is the `cf.cacheTtl`
+ * subrequest cache in `fetchEdgarEvents`. These headers are kept for
+ * browsers/proxies and for a future non-Worker host.
  */
 export async function eventsResponse(
   publicFeedEnv: string | undefined,

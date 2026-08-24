@@ -129,3 +129,12 @@ self-merge zone. Cases added to both guard test suites
 Python ingest pollers, `events` table and migration, halts and federal
 release fetchers, Benzinga/tailnet private build, Telegram sender,
 scoring on the feed surface.
+
+## Amendment (2026-08-24, final review)
+
+The edge-cache-headers decision above doesn't actually engage on Workers:
+`s-maxage` on a Worker-generated response is never put in Cloudflare's
+edge cache. The operative rate-limit mechanism is `cf.cacheTtl` /
+`cacheEverything` on the EDGAR subrequest in `fetchEdgarEvents`. The
+Cache-Control headers are retained for browser caching (and any future
+non-Worker host), not as the EDGAR protection.

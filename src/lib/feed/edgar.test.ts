@@ -53,4 +53,15 @@ describe('fetchEdgarEvents', () => {
     const fetchImpl = (async () => new Response('slow down', { status: 429 })) as typeof fetch;
     await expect(fetchEdgarEvents(fetchImpl)).rejects.toThrow('429');
   });
+
+  it('sets the Cloudflare edge-cache hint on the subrequest, so visitor polls do not relay 1:1 to EDGAR', async () => {
+    let seenInit: RequestInit | undefined;
+    const fetchImpl = (async (_url: string | URL | Request, init?: RequestInit) => {
+      seenInit = init;
+      return new Response(FIXTURE_ATOM, { status: 200 });
+    }) as typeof fetch;
+
+    await fetchEdgarEvents(fetchImpl);
+    expect((seenInit as any).cf).toEqual({ cacheTtl: 60, cacheEverything: true });
+  });
 });

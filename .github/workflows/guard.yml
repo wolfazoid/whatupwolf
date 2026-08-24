@@ -12,7 +12,8 @@ name: Guard
 # fails closed. Left inside the allowlist, one machine-authored PR could weaken
 # the scan AND relax the test that would have caught it, then merge itself on
 # green CI with no human in the path. The arm sits BEFORE the allowlist arm so it
-# wins; the rest of src/lib/ (feed.ts, lab-filter.ts, tech-level.ts) stays in-zone.
+# wins; the rest of src/lib/ (rss-feed.ts, lab-filter.ts, tech-level.ts, and
+# src/lib/feed/* other than sources*) stays in-zone.
 #
 # src/lib/feed/sources* is carved out for the same reason: it is the
 # licensing boundary deciding which market-data sources may be served to
