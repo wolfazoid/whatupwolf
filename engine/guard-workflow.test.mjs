@@ -100,7 +100,10 @@ describe('allowlist evaluation', () => {
   const evaluate = (files) => runStep(script, { env: { FILES: files.join('\n') } }).outputs.allowed;
 
   it('allows the machine’s own zone', () => {
-    expect(evaluate(['src/content/lab/a.md', 'engine/lib.mjs', 'src/lib/sanitize.ts'])).toBe('1');
+    expect(evaluate(['src/content/lab/a.md', 'engine/lib.mjs', 'src/lib/lab-filter.ts'])).toBe('1');
+  });
+  it('protects the leak guard carved out of src/lib/*', () => {
+    expect(evaluate(['src/lib/sanitize.ts'])).toBe('0');
   });
   it('protects the constitution, the core site and CI config', () => {
     expect(evaluate(['engine/CYCLE.md'])).toBe('0');

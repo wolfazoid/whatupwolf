@@ -447,15 +447,25 @@ export const IDLE_ISSUE_TITLE = 'Engine idle — backlog empty';
 // stay one day behind forever. Keying to the sweep date means the notice fires on
 // the first tick where main actually carries new ideas. `none` covers a repo whose
 // inbox has no dated sections yet, so that case posts exactly once too.
-export function idleMarker(sweepDate) {
-  return `<!-- engine-idle: sweep=${sweepDate || 'none'} -->`;
+//
+// `failedSweep` is the day an attempted sweep THREW. That notice describes the same
+// (older) sweep date the issue has usually already reported, so without a second
+// key it would be swallowed as a duplicate on the one tick where the machine is both
+// idle and broken. Keying it to the failed day as well posts it once, then holds its
+// peace while the same day keeps failing.
+export function idleMarker(sweepDate, failedSweep = null) {
+  const sweep = `sweep=${sweepDate || 'none'}`;
+  return failedSweep
+    ? `<!-- engine-idle: ${sweep} sweep-failed=${failedSweep} -->`
+    : `<!-- engine-idle: ${sweep} -->`;
 }
 
 // Has this sweep already been posted? `texts` is the issue body plus every comment
 // body. Whole-marker matching (including the trailing ` -->`) is what stops
-// '2026-07-2' from matching '2026-07-25'.
-export function sweepReported(texts, sweepDate) {
-  const marker = idleMarker(sweepDate);
+// '2026-07-2' from matching '2026-07-25' — and, because the success marker's ` -->`
+// cannot appear inside a failure marker, what keeps the two apart.
+export function sweepReported(texts, sweepDate, failedSweep = null) {
+  const marker = idleMarker(sweepDate, failedSweep);
   return (texts || []).some((t) => String(t).includes(marker));
 }
 
@@ -481,8 +491,17 @@ function clampBullet(text) {
   return t.length <= IDLE_NOTICE_BULLET_CHARS ? t : `${t.slice(0, IDLE_NOTICE_BULLET_CHARS - 1)}…`;
 }
 
-export function renderIdleNotice({ sweepDate, ideas = [], skipped = [], repoUrl = REPO_URL }) {
-  const L = [idleMarker(sweepDate), ''];
+// `sweepFailure` is `{ date, message }` when today's sweep threw instead of writing
+// ideas. It leads the notice, because a broken sweep is the more urgent fact than an
+// empty backlog, and its message is clamped like any other bullet — a stack trace
+// from `claude` is unbounded and this body must not be.
+export function renderIdleNotice({ sweepDate, ideas = [], skipped = [], sweepFailure = null, repoUrl = REPO_URL }) {
+  const L = [idleMarker(sweepDate, sweepFailure?.date), ''];
+
+  if (sweepFailure) {
+    L.push(`⚠️ **The ${sweepFailure.date} idea sweep failed** — no new ideas were written; the list below is whatever \`main\` already carried. The next tick retries it.`, '');
+    L.push(`> ${clampBullet(sweepFailure.message)}`, '');
+  }
 
   if (skipped.length) {
     L.push(`The loop found nothing buildable, but the backlog is **not** empty — ${skipped.length} unchecked item(s) are parked behind an existing PR:`, '');
@@ -530,4 +549,165 @@ export function partitionBuildable(items, hasPr) {
     skipped.push({ title: shortTitle(next.item.title), branch: next.branch });
     taken.push(next.branch);
   }
+}
+
+// ─── Swallowed-error telemetry ───────────────────────────────────────────────
+//
+// Several paths in the engine are BEST EFFORT by design: GitHub being unreachable
+// must never fail a cycle, so notify.mjs, branchHasPr, recoverToMain and
+// publish.mjs each catch, log one line, and carry on. The catching is correct.
+// The silence is not — cycle.log is gitignored and never leaves the box, so when
+// the notifier started failing on 2026-08-11 it printed one line per hourly tick
+// for seven days and no other surface changed. These patterns are what a scan of
+// that log looks for, so the count can ride out in the Agent Weekly digest.
+//
+// Deliberately NOT every console.error in the engine — only the ones where
+// nothing else records the failure. `Cycle failed:` / `Experiment failed:` exit
+// non-zero; the idle sweep's failure leads the idle notice; a failed verify gate
+// becomes a flagged status on the PR and the Lab entry. Those already leave the
+// machine, and counting them here would bury the ones that don't.
+//
+// Each pattern matches the WHOLE line shape — parenthetical and trailing clause
+// included — not just its opening words. cycle.log also carries the full task
+// text of every cycle, and a backlog item that quotes one of these messages in
+// prose must not be counted as an occurrence of it.
+export const SWALLOWED_ERROR_PATTERNS = [
+  {
+    id: 'idle-issue-read',
+    label: 'idle notice: issue lookup failed, notice skipped',
+    source: 'engine/notify.mjs',
+    match: /Could not read existing issues \(.*\) — skipping the idle notice\./,
+  },
+  {
+    id: 'idle-issue-post',
+    label: 'idle notice: post failed',
+    source: 'engine/notify.mjs',
+    match: /Could not post the idle notice \(.*\) — continuing\./,
+  },
+  {
+    id: 'idle-issue-close',
+    label: 'idle notice: close failed',
+    source: 'engine/notify.mjs',
+    match: /Could not close the idle notice \(.*\) — continuing\./,
+  },
+  {
+    id: 'pr-lookup',
+    label: 'backlog: PR lookup failed, assumed none',
+    source: 'engine/run-cycle.mjs',
+    match: /Could not check for an existing PR on \S+ \(.*\) — assuming none\./,
+  },
+  {
+    id: 'recover-to-main',
+    label: 'recovery: working tree left dirty',
+    source: 'engine/run-cycle.mjs, engine/run-experiment.mjs',
+    match: /Recovery: could not fully reset to main \(.*\)\. Check the working tree by hand\./,
+  },
+  {
+    id: 'gh-account',
+    label: 'publish: gh left authenticated as the bot account',
+    source: 'engine/publish.mjs',
+    match: /WARNING: could not determine the previous gh account\./,
+  },
+];
+
+// Counts the swallowed-error lines in a slab of log text. Line-oriented and
+// first-match-wins, so one line is never counted twice. Returns the per-pattern
+// tally (non-empty buckets only, busiest first), the grand total, and the LAST
+// matching line — the most recent occurrence is what tells a reader whether the
+// path is still broken right now. Pure; the caller does the reading.
+export function scanSwallowedErrors(text) {
+  const counts = new Map(SWALLOWED_ERROR_PATTERNS.map((p) => [p.id, 0]));
+  let latest = null;
+  for (const line of String(text ?? '').split('\n')) {
+    if (!line.trim()) continue;
+    for (const p of SWALLOWED_ERROR_PATTERNS) {
+      if (!p.match.test(line)) continue;
+      counts.set(p.id, counts.get(p.id) + 1);
+      latest = { id: p.id, label: p.label, line: line.trim() };
+      break;
+    }
+  }
+  const byPattern = SWALLOWED_ERROR_PATTERNS
+    .map((p) => ({ id: p.id, label: p.label, count: counts.get(p.id) }))
+    .filter((c) => c.count > 0)
+    .sort((a, b) => b.count - a.count || a.id.localeCompare(b.id));
+  return { total: byPattern.reduce((n, c) => n + c.count, 0), byPattern, latest };
+}
+
+// How much of the log one scan will ever read. The scan normally consumes only
+// what has been appended since last time, so this only binds on a first scan or
+// after a rotation — but "read the whole file into memory" is exactly the
+// unbounded read that killed the notifier, and it must not be reintroduced here.
+export const LOG_SCAN_MAX_BYTES = 4 * 1024 * 1024;
+
+// Where to start reading the log this run, given its current `size` and the byte
+// offset the previous scan consumed to (`offset`, or null when there is no usable
+// state). Three cases, and the last two are why this is a function and not a
+// subtraction:
+//   • no offset — a first scan, or state we can't trust: read the whole file.
+//   • size < offset — the log was rotated or truncated under us, so the offset
+//     now points past the end. Left alone it would read nothing, forever, and
+//     the scan would silently report zero for the rest of time. Start over.
+//   • the window exceeds maxBytes — read only the tail. Its first line is almost
+//     certainly a fragment, so `clipped` tells the caller to drop it.
+// Pure; the caller stats the file and does the read.
+export function resolveLogWindow(size, offset, maxBytes = LOG_SCAN_MAX_BYTES) {
+  const end = Number.isInteger(size) && size >= 0 ? size : 0;
+  const prev = Number.isInteger(offset) && offset >= 0 ? offset : null;
+  const rotated = prev !== null && prev > end;
+  let start = prev === null || rotated ? 0 : prev;
+  let clipped = false;
+  if (end - start > maxBytes) {
+    start = end - maxBytes;
+    clipped = true;
+  }
+  return { start, end, first: prev === null, rotated, clipped };
+}
+
+// A swallowed error's message is a raw `err.message` — an unbounded string that a
+// stack trace or a `gh` dump can blow up. The digest body is a published artefact,
+// so it gets the same clamp the idle notice uses on its bullets.
+export const SELF_CHECK_MESSAGE_CHARS = 400;
+
+// The "engine self-check" section appended to a digest body. `scan` is what
+// scanCycleLog returns (see engine/log-scan.mjs). A no-data scan renders as an
+// explicit "no data" line rather than as a zero: a scanner that cannot read its
+// log reporting "0 failures" would be a second silent failure on top of the first.
+export function renderSelfCheck(scan) {
+  const s = scan || { status: 'no-data', reason: 'the scan produced no result' };
+  const L = ['## Engine self-check', ''];
+
+  if (s.status !== 'ok') {
+    L.push(`Swallowed best-effort failures in \`engine/cycle.log\`: **no data** — ${s.reason || 'unknown reason'}.`);
+    return L.join('\n');
+  }
+
+  const window = s.first
+    ? 'since the start of the log (first scan)'
+    : `since the previous digest${s.since ? ` (${s.since})` : ''}`;
+  L.push(`Best-effort failures the engine swallowed into \`engine/cycle.log\` ${window}: **${s.total}**.`);
+  L.push('');
+
+  if (s.total === 0) {
+    L.push('No best-effort path failed silently in this window.');
+  } else {
+    for (const c of s.byPattern) L.push(`- ${c.label} — **${c.count}**`);
+    L.push('');
+    if (s.latest) {
+      const msg = String(s.latest.line);
+      const clamped = msg.length <= SELF_CHECK_MESSAGE_CHARS
+        ? msg
+        : `${msg.slice(0, SELF_CHECK_MESSAGE_CHARS - 1)}…`;
+      L.push(`Most recent: \`${clamped.replace(/`/g, "'")}\``);
+    }
+  }
+
+  const notes = [];
+  if (s.rotated) notes.push('the log was rotated or truncated since the previous scan, so this window restarts from the top of the file');
+  if (s.clipped) notes.push(`the window was larger than the ${Math.round(LOG_SCAN_MAX_BYTES / (1024 * 1024))} MiB read cap, so only its tail was scanned`);
+  if (notes.length) {
+    L.push('');
+    L.push(`_Note: ${notes.join('; ')}._`);
+  }
+  return L.join('\n');
 }
