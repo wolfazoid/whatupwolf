@@ -42,3 +42,18 @@ export function parseEdgarAtom(xml: string): FeedEvent[] {
   }
   return events;
 }
+
+export const EDGAR_URL =
+  'https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&output=atom&count=100';
+
+// Mandatory per EDGAR access policy: identify yourself with real contact
+// info. Exceeding 10 req/sec or omitting this gets the IP banned outright.
+export const EDGAR_USER_AGENT = 'whatupwolf.com wolf@wearefeasting.com';
+
+export async function fetchEdgarEvents(fetchImpl: typeof fetch = fetch): Promise<FeedEvent[]> {
+  const res = await fetchImpl(EDGAR_URL, {
+    headers: { 'User-Agent': EDGAR_USER_AGENT },
+  });
+  if (!res.ok) throw new Error(`EDGAR responded ${res.status}`);
+  return parseEdgarAtom(await res.text());
+}

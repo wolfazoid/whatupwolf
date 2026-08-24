@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseEdgarAtom } from './edgar';
+import { parseEdgarAtom, fetchEdgarEvents, EDGAR_USER_AGENT } from './edgar';
 import { FIXTURE_ATOM } from './edgar.fixture';
 
 describe('parseEdgarAtom', () => {
@@ -28,5 +28,29 @@ describe('parseEdgarAtom', () => {
   it('returns [] on garbage input rather than throwing', () => {
     expect(parseEdgarAtom('')).toEqual([]);
     expect(parseEdgarAtom('<html>not a feed</html>')).toEqual([]);
+  });
+});
+
+describe('fetchEdgarEvents', () => {
+  it('hits getcurrent with the mandatory User-Agent and parses the body', async () => {
+    let seenUrl = '';
+    let seenUa = '';
+    const fetchImpl = (async (url: string | URL | Request, init?: RequestInit) => {
+      seenUrl = String(url);
+      seenUa = (init?.headers as Record<string, string>)['User-Agent'];
+      return new Response(FIXTURE_ATOM, { status: 200 });
+    }) as typeof fetch;
+
+    const events = await fetchEdgarEvents(fetchImpl);
+    expect(seenUrl).toContain('action=getcurrent');
+    expect(seenUrl).toContain('output=atom');
+    expect(seenUa).toBe(EDGAR_USER_AGENT);
+    expect(EDGAR_USER_AGENT).toContain('wolf@wearefeasting.com');
+    expect(events).toHaveLength(2);
+  });
+
+  it('throws on a non-200 so callers can fail the response', async () => {
+    const fetchImpl = (async () => new Response('slow down', { status: 429 })) as typeof fetch;
+    await expect(fetchEdgarEvents(fetchImpl)).rejects.toThrow('429');
   });
 });
