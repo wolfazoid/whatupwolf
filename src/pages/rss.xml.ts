@@ -1,12 +1,12 @@
 import rss from '@astrojs/rss';
 import { getCollection } from 'astro:content';
 import type { APIContext } from 'astro';
-import { buildFeedItems } from '../lib/feed';
+import { buildFeedItems } from '../lib/rss-feed';
 
 export async function GET(context: APIContext) {
   // Item construction (draft filtering, per-post links, ordering) lives in
-  // src/lib/feed.ts so the guid-uniqueness rule can be unit-tested without a
-  // build — see src/lib/feed.test.ts.
+  // src/lib/rss-feed.ts so the guid-uniqueness rule can be unit-tested without
+  // a build — see src/lib/rss-feed.test.ts.
   const items = buildFeedItems(await getCollection('lab'), await getCollection('writing'));
 
   return rss({
