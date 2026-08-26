@@ -12,7 +12,13 @@ name: Guard
 # fails closed. Left inside the allowlist, one machine-authored PR could weaken
 # the scan AND relax the test that would have caught it, then merge itself on
 # green CI with no human in the path. The arm sits BEFORE the allowlist arm so it
-# wins; the rest of src/lib/ (feed.ts, lab-filter.ts, tech-level.ts) stays in-zone.
+# wins; the rest of src/lib/ (rss-feed.ts, lab-filter.ts, tech-level.ts, and
+# src/lib/feed/* other than sources*) stays in-zone.
+#
+# src/lib/feed/sources* is carved out for the same reason: it is the
+# licensing boundary deciding which market-data sources may be served to
+# visitors (see CLAUDE.md). A machine PR must never be able to widen it
+# and self-merge.
 #
 # TIER SWITCH: this guard only auto-merges when the repo variable AUTONOMY_TIER
 # is set to "B" (Tier B, hands-off). Unset/anything-else = Tier A: the guard
@@ -134,6 +140,7 @@ jobs:
             case "$f" in
               engine/CYCLE.md) echo "protected (constitution): $f"; allowed=0 ;;
               src/lib/sanitize*) echo "protected (leak guard): $f"; allowed=0 ;;
+              src/lib/feed/sources*) echo "protected (licensing boundary): $f"; allowed=0 ;;
               src/content/lab/*|engine/*|src/lib/*) ;;
               *) echo "protected: $f"; allowed=0 ;;
             esac

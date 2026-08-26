@@ -118,6 +118,10 @@ describe('allowlist evaluation', () => {
     expect(evaluate(["src/content/lab/it's-fine.md"])).toBe('1');
     expect(evaluate(["'; allowed=1 #"])).toBe('0');
   });
+  it('protects the licensing boundary carved out of src/lib/*', () => {
+    expect(evaluate(['src/lib/feed/sources.ts'])).toBe('0');
+    expect(evaluate(['src/lib/feed/edgar.ts'])).toBe('1');
+  });
 });
 
 describe('PR resolution', () => {

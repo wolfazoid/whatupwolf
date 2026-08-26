@@ -5,7 +5,10 @@ See the full design in [`docs/superpowers/specs/whatupwolf-site.md`](docs/superp
 
 ## Stack
 
-Astro + TypeScript + content collections, Tailwind CSS v4, deployed to Cloudflare Pages.
+Astro + TypeScript + content collections, Tailwind CSS v4, deployed to Cloudflare Workers.
+The build is static-first: every page prerenders, except `/api/events`, which runs
+on-demand in the worker (`dist/_worker.js`) that the Cloudflare adapter emits. The
+`/feed` page polls `/api/events` for public market data (SEC EDGAR filings).
 
 ## Develop
 
@@ -27,12 +30,19 @@ Each entry is one Markdown file with frontmatter. Collections live in `src/conte
 
 Publishing = write a `.md` file, commit, push. Cloudflare auto-deploys on push to `main`.
 
-## Deploy (Cloudflare Pages)
+## Deploy (Cloudflare Workers)
 
-1. Push this repo to GitHub.
-2. Cloudflare dashboard → Workers & Pages → Create → Pages → connect the repo.
-3. Build command: `npm run build` · Output directory: `dist`.
-4. Deploys on every push to `main`.
+```bash
+npm run build
+npx wrangler deploy
+```
+
+`wrangler.jsonc` uploads `dist/` as static assets plus the worker at
+`dist/_worker.js` for `/api/events`. `PUBLIC_FEED` gates which market-data
+sources the worker serves: unset builds the public deploy (EDGAR and other
+public sources only); set to exactly `'false'` builds the private/tailnet
+deploy, which also serves licensed sources (e.g. Benzinga). Never set
+`PUBLIC_FEED=false` on the public deploy — see `src/lib/feed/sources.ts`.
 
 ## Roadmap
 

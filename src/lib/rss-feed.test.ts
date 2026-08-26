@@ -7,7 +7,7 @@ import {
   type FeedEntry,
   type LabData,
   type WritingData,
-} from './feed';
+} from './rss-feed';
 
 const lab = (id: string, over: Partial<LabData> = {}): FeedEntry<LabData> => ({
   id,

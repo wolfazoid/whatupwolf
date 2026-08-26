@@ -142,3 +142,30 @@ describe('guard allowlist — the leak guard is carved out of src/lib/*', () => 
     expect(sanitizeArm).toBeLessThan(allowArm);
   });
 });
+
+// Same trap, second door. src/lib/feed/sources.ts is the licensing boundary:
+// it decides whether licensed (private-tier) sources can be served to
+// visitors. The src/lib/* arm globs into subdirectories, so without a
+// carve-out a machine PR could widen the gate and self-merge on green CI.
+describe('guard allowlist — the licensing boundary is carved out of src/lib/*', () => {
+  it('flags src/lib/feed/sources.ts as needs-human', () => {
+    const { allowed, log } = evaluate(['src/lib/feed/sources.ts']);
+    expect(allowed).toBe(false);
+    expect(log).toContain('protected (licensing boundary): src/lib/feed/sources.ts');
+  });
+
+  it('flags the gate test alongside the gate', () => {
+    expect(evaluate(['src/lib/feed/sources.test.ts']).allowed).toBe(false);
+  });
+
+  it('keeps the rest of src/lib/feed/ in-zone', () => {
+    expect(evaluate(['src/lib/feed/edgar.ts', 'src/lib/feed/render.ts']).allowed).toBe(true);
+  });
+
+  it('places the licensing arm before the src/lib/* allowlist arm', () => {
+    const arm = RUN_BLOCK.indexOf('src/lib/feed/sources*)');
+    const allowArm = RUN_BLOCK.indexOf('src/lib/*)');
+    expect(arm).toBeGreaterThanOrEqual(0);
+    expect(arm).toBeLessThan(allowArm);
+  });
+});

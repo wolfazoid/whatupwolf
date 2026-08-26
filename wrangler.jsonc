@@ -1,13 +1,15 @@
 {
-  // Deploy whatupwolf as a static-assets site on Cloudflare Workers.
-  // The Astro build is fully static (output: "static") — there is no server
-  // Worker, so `wrangler deploy` just uploads ./dist as static assets. This
-  // file's presence also stops the Workers Builds pipeline from trying to run
-  // `astro add cloudflare` (the SSR-adapter path) which fails on a static site.
+  // Deploy whatupwolf on Cloudflare Workers. The build is static-first with
+  // the cloudflare adapter: every page prerenders into ./dist as before, and
+  // on-demand routes (currently just /api/events) run in the worker the
+  // adapter emits at dist/_worker.js. `wrangler deploy` uploads both.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "whatupwolf",
   "compatibility_date": "2026-07-17",
+  "compatibility_flags": ["nodejs_compat"],
+  "main": "./dist/_worker.js/index.js",
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "binding": "ASSETS"
   }
 }
