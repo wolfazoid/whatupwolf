@@ -7,6 +7,7 @@ const event = (over: Partial<FeedEvent> = {}): FeedEvent => ({
   source: 'edgar',
   form: '8-K',
   company: 'ACME & CO',
+  cik: '0000000000',
   filedAt: '2026-08-24T12:34:56-04:00',
   url: 'https://www.sec.gov/Archives/x-index.htm',
   ...over,

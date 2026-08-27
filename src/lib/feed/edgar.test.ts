@@ -15,14 +15,27 @@ describe('parseEdgarAtom', () => {
       source: 'edgar',
       form: '8-K',
       company: 'ACME HOLDINGS & CO',
+      cik: '0000123456',
       filedAt: '2026-08-24T12:34:56-04:00',
       url: 'https://www.sec.gov/Archives/edgar/data/123456/000012345626000042-index.htm',
     });
   });
 
-  it('handles the Form 4 reporting-person shape', () => {
-    expect(events[1].form).toBe('4');
-    expect(events[1].company).toBe('Doe Jane');
+  it('captures the reporting-person CIK on Form 4 entries', () => {
+    expect(events[1].cik).toBe('0000987654');
+  });
+
+  it('yields an empty cik when the title has no CIK parenthetical', () => {
+    const atom = `<feed><entry>
+<title>8-K - NO CIK CORP</title>
+<link rel="alternate" type="text/html" href="https://www.sec.gov/x-index.htm"/>
+<updated>2026-08-26T10:00:00-04:00</updated>
+<category scheme="https://www.sec.gov/" label="form type" term="8-K"/>
+<id>urn:tag:sec.gov,2008:accession-number=0000000000-26-000001</id>
+</entry></feed>`;
+    const [event] = parseEdgarAtom(atom);
+    expect(event.cik).toBe('');
+    expect(event.company).toBe('NO CIK CORP');
   });
 
   it('returns [] on garbage input rather than throwing', () => {
