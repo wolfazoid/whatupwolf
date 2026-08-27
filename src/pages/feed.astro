@@ -5,7 +5,9 @@ import Base from '../layouts/Base.astro';
 <Base title="Feed — whatupwolf" description="Live public market feed — SEC EDGAR filings.">
   <h1 class="text-2xl font-semibold tracking-tight">Feed</h1>
   <p class="mt-3 text-[var(--color-muted)] leading-relaxed">
-    Latest SEC EDGAR filings, refreshed every minute. Public sources only.
+    Material filings only — 8-Ks with item codes, activist stakes, shelf
+    registrations and priced offerings, late filings, delistings. Refreshed
+    every minute.
   </p>
   <p id="feed-status" class="chrome mt-6" aria-live="polite">loading…</p>
   <ol id="feed-list" class="mt-2 divide-y divide-[var(--color-line)]"></ol>

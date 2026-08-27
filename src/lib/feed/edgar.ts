@@ -8,6 +8,7 @@ export interface FeedEvent {
   source: 'edgar';
   form: string;
   company: string;
+  cik: string; // 10-digit zero-padded, '' when the entry title carries none
   filedAt: string; // ISO-8601, straight from the entry's <updated>
   url: string;
 }
@@ -36,9 +37,10 @@ export function parseEdgarAtom(xml: string): FeedEvent[] {
     // Title shape: "8-K - ACME HOLDINGS & CO (0000123456) (Filer)".
     let company = decode(title);
     if (company.startsWith(`${form} - `)) company = company.slice(form.length + 3);
+    const cik = /\((\d{10})\)/.exec(company)?.[1] ?? '';
     company = company.replace(/\s*\(\d{10}\)\s*(\([^)]*\))?\s*$/, '').trim();
 
-    events.push({ id, source: 'edgar', form, company, filedAt, url: decode(url) });
+    events.push({ id, source: 'edgar', form, company, cik, filedAt, url: decode(url) });
   }
   return events;
 }
