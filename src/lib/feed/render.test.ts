@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { escapeHtml, formatFiledAt, renderEvents } from './render';
-import type { FeedEvent } from './edgar';
+import type { FeedEventOut } from './events';
 
-const event = (over: Partial<FeedEvent> = {}): FeedEvent => ({
+const event = (over: Partial<FeedEventOut> = {}): FeedEventOut => ({
   id: 'urn:x',
   source: 'edgar',
   form: '8-K',
@@ -10,6 +10,8 @@ const event = (over: Partial<FeedEvent> = {}): FeedEvent => ({
   cik: '0000000000',
   filedAt: '2026-08-24T12:34:56-04:00',
   url: 'https://www.sec.gov/Archives/x-index.htm',
+  ticker: null as string | null,
+  items: [] as string[],
   ...over,
 });
 
@@ -45,5 +47,32 @@ describe('renderEvents', () => {
   });
   it('renders an empty state, not an empty list', () => {
     expect(renderEvents([])).toContain('no filings');
+  });
+});
+
+describe('renderEvents — v2 badges', () => {
+  it('renders hot item codes with the accent class and routine ones muted', () => {
+    const html = renderEvents([event({ items: ['5.02', '9.01'] })]);
+    expect(html).toContain('>5.02</span>');
+    expect(html).toContain('>9.01</span>');
+    expect(html).toContain('text-[var(--color-accent)]');           // hot 5.02
+    expect(html.indexOf('5.02')).toBeLessThan(html.indexOf('9.01')); // order preserved
+  });
+
+  it('labels known items via a title tooltip and falls back for unknown codes', () => {
+    const html = renderEvents([event({ items: ['4.02', '3.01'] })]);
+    expect(html).toContain('title="Non-reliance on prior financials (restatement)"');
+    expect(html).toContain('title="Item 3.01"');
+  });
+
+  it('renders the ticker in mono when present and omits it when null', () => {
+    expect(renderEvents([event({ ticker: 'ACME' })])).toContain('ACME');
+    expect(renderEvents([event({ ticker: null })])).not.toContain('font-[var(--font-mono)]');
+  });
+
+  it('escapes hostile ticker and item content', () => {
+    const html = renderEvents([event({ ticker: '<b>X</b>', items: ['"><script>1</script>'] })]);
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('"><');
   });
 });
