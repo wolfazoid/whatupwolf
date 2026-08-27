@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { FORM_ALLOWLIST, isAllowlisted, classifyItem, ITEM_DEFS } from './forms';
 
 describe('isAllowlisted', () => {
-  it.each(['8-K', '8-K/A', 'SC 13D', 'SC 13D/A', 'S-3', 'S-3/A', '424B5', 'NT 10-K', 'NT 10-Q', '25', '25-NSE'])(
+  it.each(['8-K', '8-K/A', 'SCHEDULE 13D', 'SCHEDULE 13D/A', 'SC 13D', 'SC 13D/A', 'S-3', 'S-3/A', '424B5', 'NT 10-K', 'NT 10-Q', '25', '25-NSE'])(
     'allows %s',
     (form) => expect(isAllowlisted(form)).toBe(true)
   );
@@ -18,7 +18,7 @@ describe('isAllowlisted', () => {
   });
 
   it('exports the exact allowlist for the composer and docs', () => {
-    expect(FORM_ALLOWLIST).toHaveLength(11);
+    expect(FORM_ALLOWLIST).toHaveLength(13);
   });
 });
 

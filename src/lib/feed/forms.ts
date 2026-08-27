@@ -11,7 +11,9 @@
 
 export const FORM_ALLOWLIST: readonly string[] = [
   '8-K', '8-K/A',
-  'SC 13D', 'SC 13D/A',
+  // getcurrent emits SCHEDULE 13D / SCHEDULE 13D/A; SC 13D / SC 13D/A kept as aliases
+  // since EDGAR uses the SC label on other surfaces.
+  'SCHEDULE 13D', 'SCHEDULE 13D/A', 'SC 13D', 'SC 13D/A',
   'S-3', 'S-3/A', '424B5',
   'NT 10-K', 'NT 10-Q',
   '25', '25-NSE',

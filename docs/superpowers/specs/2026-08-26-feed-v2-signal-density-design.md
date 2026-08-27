@@ -166,3 +166,11 @@ unchanged.
 - 8.01 text-level materiality analysis.
 - Market-cap context and any scoring on the page (Python pipeline).
 - After-hours/Friday timing signals (session-timing scoring, Python).
+
+## Amendment (2026-08-27, live verification)
+
+Live `getcurrent` Atom feed emits the category term as `SCHEDULE 13D` /
+`SCHEDULE 13D/A`, not `SC 13D` / `SC 13D/A` as originally assumed. Both
+spellings are now allowlisted in `FORM_ALLOWLIST`; the SC-prefixed forms
+are kept as defensive aliases since EDGAR uses that label on other
+surfaces (e.g. `type=` filtering elsewhere).

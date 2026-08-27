@@ -23,10 +23,10 @@ const routedFetch = (overrides: Partial<Record<'atom' | 'tickers' | 'index', () 
 const OUT_OF_ORDER_ATOM = `<?xml version="1.0" encoding="ISO-8859-1" ?>
 <feed xmlns="http://www.w3.org/2005/Atom">
 <entry>
-<title>SC 13D - OLDER FIRST INC (0000111111) (Filer)</title>
+<title>SCHEDULE 13D - OLDER FIRST INC (0000111111) (Filer)</title>
 <link rel="alternate" type="text/html" href="https://www.sec.gov/Archives/edgar/data/111111/a-index.htm"/>
 <updated>2026-08-24T10:00:00-04:00</updated>
-<category scheme="https://www.sec.gov/" label="form type" term="SC 13D"/>
+<category scheme="https://www.sec.gov/" label="form type" term="SCHEDULE 13D"/>
 <id>urn:tag:sec.gov,2008:accession-number=0000111111-26-000001</id>
 </entry>
 <entry>
@@ -73,7 +73,7 @@ describe('eventsResponse', () => {
     const body = await res.json();
     const byForm = Object.fromEntries(body.events.map((e: { form: string; items: string[] }) => [e.form, e.items]));
     expect(byForm['8-K']).toContain('5.02');
-    expect(byForm['SC 13D']).toEqual([]);
+    expect(byForm['SCHEDULE 13D']).toEqual([]);
   });
 
   it('sorts newest-first after filtering', async () => {
