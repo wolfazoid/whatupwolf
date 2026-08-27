@@ -1,5 +1,13 @@
 import { servableSources } from './sources';
 import { fetchEdgarEvents, type FeedEvent } from './edgar';
+import { isAllowlisted } from './forms';
+import { fetchTickerMap } from './tickers';
+import { enrichWithItems } from './items';
+
+export interface FeedEventOut extends FeedEvent {
+  ticker: string | null;
+  items: string[];
+}
 
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
@@ -22,7 +30,22 @@ export async function eventsResponse(
         s.id === 'edgar' ? fetchEdgarEvents(fetchImpl) : Promise.resolve<FeedEvent[]>([])
       )
     );
-    const events = batches.flat().sort((a, b) => b.filedAt.localeCompare(a.filedAt));
+    const filtered = batches
+      .flat()
+      .filter((e) => isAllowlisted(e.form))
+      .sort((a, b) => b.filedAt.localeCompare(a.filedAt));
+
+    // Enrichment fails open (empty map / []) — only getcurrent can 502.
+    const [tickers, items] = await Promise.all([
+      fetchTickerMap(fetchImpl),
+      enrichWithItems(filtered, fetchImpl),
+    ]);
+    const events: FeedEventOut[] = filtered.map((e) => ({
+      ...e,
+      ticker: tickers.get(e.cik) ?? null,
+      items: items.get(e.id) ?? [],
+    }));
+
     return new Response(JSON.stringify({ events, asOf: new Date().toISOString() }), {
       status: 200,
       headers: {
