@@ -1,7 +1,7 @@
 {
   // Deploy whatupwolf on Cloudflare Workers. The build is static-first with
   // the cloudflare adapter: every page prerenders into ./dist as before, and
-  // on-demand routes (currently just /api/events) run in the worker the
+  // on-demand routes (currently none) run in the worker the
   // adapter emits at dist/_worker.js. `wrangler deploy` uploads both.
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "whatupwolf",

@@ -1,10 +1,6 @@
 /// <reference types="astro/client" />
 
-type CloudflareEnv = {
-  // Set to the exact string 'false' ONLY on the private/tailnet build.
-  // The public deploy sets nothing — absence is the public configuration.
-  PUBLIC_FEED?: string;
-};
+type CloudflareEnv = Record<string, never>;
 type Runtime = import('@astrojs/cloudflare').Runtime<CloudflareEnv>;
 
 declare namespace App {

@@ -10,7 +10,7 @@ export default defineConfig({
   site: 'https://whatupwolf.com',
 
   // Static-first: every page prerenders as before. Only routes that opt out
-  // (prerender = false — currently just /api/events) run in the Worker.
+  // (prerender = false — currently none) run in the Worker.
   adapter: cloudflare(),
 
   vite: {
